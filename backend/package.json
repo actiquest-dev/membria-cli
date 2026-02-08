@@ -5,11 +5,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "build": "echo 'No build step needed'",
-    "test": "jest"
+    "dev": "node --watch src/index.js"
   },
-  "keywords": ["github", "mining", "patterns", "ast"],
+  "keywords": ["github", "mining", "patterns"],
   "author": "",
   "license": "MIT",
   "dependencies": {
@@ -19,14 +17,8 @@
     "redis": "^4.6.11",
     "pg": "^8.11.3",
     "axios": "^1.6.2",
-    "tree-sitter": "^0.20.7",
-    "tree-sitter-javascript": "^0.20.2",
     "winston": "^3.11.0",
-    "bull": "^4.12.0",
-    "node-cron": "^3.0.3"
-  },
-  "devDependencies": {
-    "jest": "^29.7.0"
+    "bull": "^4.12.0"
   },
   "engines": {
     "node": ">=20.0.0"
