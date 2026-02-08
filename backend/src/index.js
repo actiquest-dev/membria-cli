@@ -14,7 +14,7 @@ async function connect() {
   try {
     redisClient = new RedisClient();
     await redisClient.connect();
-    dbPool = new Pool();
+    dbPool = pool;
     await dbPool.connect();
     logger.info('✅ Connected to Redis and PostgreSQL');
   } catch (error) {
