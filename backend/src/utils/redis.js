@@ -42,6 +42,21 @@ class RedisClient {
   async set(key, value) {
     return this.client.set(key, value);
   }
+
+  async setex(key, seconds, value) {
+    return this.client.setEx(key, seconds, value);
+  }
+
+  async subscribe(channel, callback) {
+    const subscriber = this.client.duplicate();
+    await subscriber.connect();
+    await subscriber.subscribe(channel, callback);
+    return subscriber;
+  }
+
+  getClient() {
+    return this.client;
+  }
 }
 
 module.exports = { RedisClient };

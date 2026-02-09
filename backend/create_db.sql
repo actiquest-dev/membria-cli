@@ -1,0 +1,2 @@
+CREATE USER membria WITH PASSWORD '123zXc123!~~';
+CREATE DATABASE membria OWNER membria;

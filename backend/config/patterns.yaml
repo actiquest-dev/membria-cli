@@ -1,0 +1,75 @@
+patterns:
+  custom_jwt:
+    name: "Custom JWT Implementation"
+    category: auth
+    severity: high
+    languages: [javascript, typescript]
+    detection:
+      regex_include:
+        - 'jwt\.sign\s*\('
+        - 'jsonwebtoken'
+      regex_exclude:
+        - 'passport'
+        - 'express-jwt'
+        - 'JwtStrategy'
+      ast_query: custom_jwt
+      requires_import: ['jsonwebtoken', 'jwt']
+      excludes_import: ['passport', 'passport-jwt', 'express-jwt']
+      llm_prompt: |
+        Is this a custom JWT implementation or proper library usage?
+        Custom = manually calling jwt.sign() without passport
+        Library = using passport-jwt, express-jwt, etc.
+        Answer: CUSTOM or LIBRARY
+    evidence:
+      alternative: "passport-jwt"
+      common_issues:
+        - "Security vulnerabilities"
+        - "Token validation errors"
+        - "Secret key management"
+
+  foreach_async:
+    name: "forEach with async callback"
+    category: async
+    severity: high
+    languages: [javascript, typescript]
+    detection:
+      regex_include:
+        - '\.forEach\s*\(\s*async'
+      regex_exclude: []
+      ast_query: foreach_async
+      requires_import: []
+      excludes_import: []
+      llm_prompt: |
+        Does this code use forEach with async callback?
+        This is an antipattern because forEach doesn't wait for promises.
+        Answer: YES or NO
+    evidence:
+      alternative: "for...of loop or Promise.all()"
+      common_issues:
+        - "Race conditions"
+        - "Promises not awaited"
+        - "Unexpected execution order"
+
+  n_plus_one:
+    name: "N+1 Query Problem"
+    category: database
+    severity: medium
+    languages: [javascript, typescript]
+    detection:
+      regex_include:
+        - 'for\s*\([^)]+\)\s*\{[^}]*\.(find|findOne|query)'
+        - '\.forEach\([^)]+[^}]*\.(find|findOne)'
+      regex_exclude: []
+      ast_query: n_plus_one
+      requires_import: []
+      excludes_import: []
+      llm_prompt: |
+        Is this a N+1 query antipattern?
+        N+1 = looping and making DB query in each iteration
+        Answer: YES or NO
+    evidence:
+      alternative: "Batch loading, JOIN, eager loading"
+      common_issues:
+        - "Performance degradation"
+        - "Database connection exhaustion"
+        - "Slow response times"

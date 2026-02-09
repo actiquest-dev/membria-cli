@@ -1,150 +1,265 @@
 require('dotenv').config();
-const { Pool } = require('pg');
-const redis = require('redis');
 const axios = require('axios');
-
-const dbPool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'membria',
-  user: process.env.DB_USER || 'membria',
-  password: process.env.DB_PASSWORD,
-});
-
-const redisClient = redis.createClient({
-  socket: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379,
-  }
-});
+const Bull = require('bull');
+const { pool } = require('./utils/database');
+const { RedisClient } = require('./utils/redis');
+const logger = require('./utils/logger');
+const { PatternDetector } = require('./detection');
+const { loadPatternConfigs } = require('./config/patterns');
+const { parseDiff, getLanguage } = require('./detection/diff-parser');
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
-const OWNER = process.env.GITHUB_OWNER || 'facebook';
-const REPO_NAME = process.env.GITHUB_REPO || 'react';
+const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+const REDIS_PORT = process.env.REDIS_PORT || 6379;
 
-async function fetchRepo(owner, name, page = 1) {
+// Bull queue for pattern detection
+const detectQueue = new Bull('pattern-detect', {
+  redis: { host: REDIS_HOST, port: parseInt(REDIS_PORT) },
+});
+
+// Load pattern configs once at startup
+let patterns = null;
+let detector = null;
+
+// --- GitHub API ---
+
+async function fetchCommitsPage(owner, name, page = 1) {
+  const url = `https://api.github.com/repos/${owner}/${name}/commits?page=${page}&per_page=100`;
+  const headers = {
+    'Accept': 'application/vnd.github.v3+json',
+  };
+  if (GITHUB_TOKEN) {
+    headers['Authorization'] = `token ${GITHUB_TOKEN}`;
+  }
+  const response = await axios.get(url, { headers });
+  return response.data;
+}
+
+async function fetchCommitDiff(owner, name, sha) {
+  const url = `https://api.github.com/repos/${owner}/${name}/commits/${sha}`;
+  const headers = {
+    'Accept': 'application/vnd.github.v3.diff',
+  };
+  if (GITHUB_TOKEN) {
+    headers['Authorization'] = `token ${GITHUB_TOKEN}`;
+  }
   try {
-    const url = `https://api.github.com/repos/${owner}/${name}/commits?page=${page}&per_page=100`;
-    const headers = {
-      'Authorization': `token ${GITHUB_TOKEN}`,
-      'Accept': 'application/vnd.github.v3+json'
-    };
-    const response = await axios.get(url, { headers });
+    const response = await axios.get(url, { headers, timeout: 30000 });
     return response.data;
   } catch (error) {
-    if (error.response?.status === 403) {
-      console.error('GitHub API rate limit reached');
-    } else if (error.response?.status === 404) {
-      console.error(`Repo ${owner}/${name} not found`);
-    }
-    throw error;
+    logger.warn(`Failed to fetch diff for ${sha}: ${error.message}`);
+    return null;
   }
 }
 
-async function analyzeCommit(commit) {
-  const messages = commit.commit.message.split('\n').filter(m => m.trim());
+// --- Database operations ---
 
-  // Simple pattern matching (AI would be better but slower)
-  const issues = [];
-
-  if (messages.some(m => m.trim().startsWith('TODO:') || m.trim().startsWith('FIXME'))) {
-    issues.push({ type: 'todo', message: m.trim() });
-  }
-
-  if (messages.some(m => m.trim().toLowerCase().includes('fixme') || m.trim().toLowerCase().includes('hack'))) {
-    issues.push({ type: 'fixme', message: m.trim() });
-  }
-
-  return issues;
+async function upsertRepo(owner, name) {
+  const fullName = `${owner}/${name}`;
+  const result = await pool.query(
+    `INSERT INTO repos (owner, name, full_name)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (full_name) DO UPDATE SET last_fetched_at = NOW()
+     RETURNING id`,
+    [owner, name, fullName]
+  );
+  return result.rows[0].id;
 }
 
-async function savePattern(owner, repo, sha, issues) {
-  try {
-    await dbPool.query(
-      `INSERT INTO patterns (owner, repo, sha, issues, created_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (sha) DO NOTHING`,
-      [owner, repo, sha, JSON.stringify(issues)]
+async function storeCommit(repoId, commit, diffText) {
+  const result = await pool.query(
+    `INSERT INTO commits (sha, repo_id, message, author, date, diff_text, files_changed)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (sha, repo_id) DO NOTHING
+     RETURNING id`,
+    [
+      commit.sha,
+      repoId,
+      commit.commit.message,
+      commit.commit.author?.name || 'unknown',
+      commit.commit.author?.date || null,
+      diffText,
+      JSON.stringify(commit.files?.map(f => f.filename) || []),
+    ]
+  );
+  return result.rows[0]?.id || null;
+}
+
+async function storeOccurrence(commitSha, repoId, patternId, action, filePath, result) {
+  for (const match of result.matches) {
+    await pool.query(
+      `INSERT INTO pattern_occurrences
+       (commit_sha, repo_id, pattern_id, action, file_path, line_number, confidence, detection_method, match_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        commitSha,
+        repoId,
+        patternId,
+        action,
+        filePath,
+        match.line,
+        result.confidence,
+        result.method,
+        match.text.substring(0, 500),
+      ]
     );
-  } catch (error) {
-    console.error('Failed to save pattern:', error.message);
   }
 }
+
+async function markCommitProcessed(sha, repoId) {
+  await pool.query(
+    'UPDATE commits SET processed = TRUE WHERE sha = $1 AND repo_id = $2',
+    [sha, repoId]
+  );
+}
+
+// --- Mining pipeline ---
 
 async function mineRepository(owner, repo) {
-  console.log(`🚀 Mining ${owner}/${repo}...`);
+  logger.info(`Mining ${owner}/${repo}...`);
+
+  const repoId = await upsertRepo(owner, repo);
   let page = 1;
-  let hasMore = true;
-  let totalIssues = 0;
+  let totalCommits = 0;
 
-  while (hasMore) {
+  while (true) {
+    let commits;
     try {
-      const commits = await fetchRepo(owner, repo, page);
+      commits = await fetchCommitsPage(owner, repo, page);
+    } catch (error) {
+      if (error.response?.status === 403) {
+        logger.warn('GitHub API rate limit reached, stopping');
+      } else if (error.response?.status === 404) {
+        logger.error(`Repo ${owner}/${repo} not found`);
+      } else {
+        logger.error(`Error fetching commits page ${page}: ${error.message}`);
+      }
+      break;
+    }
 
-      if (commits.length === 0) {
-        hasMore = false;
-        break;
+    if (!commits || commits.length === 0) break;
+
+    for (const commit of commits) {
+      const diff = await fetchCommitDiff(owner, repo, commit.sha);
+      const commitId = await storeCommit(repoId, commit, diff);
+
+      if (commitId) {
+        await detectQueue.add({
+          commitSha: commit.sha,
+          repoId,
+          diffText: diff,
+        });
+        totalCommits++;
       }
 
-      for (const commit of commits) {
-        const sha = commit.sha;
-        const issues = await analyzeCommit(commit);
+      // Rate limit protection
+      await new Promise(r => setTimeout(r, 500));
+    }
 
-        if (issues.length > 0) {
-          await savePattern(owner, repo, sha, issues);
-          totalIssues += issues.length;
-          console.log(`✓ ${sha.substring(0, 7)}: ${issues.length} issues`);
+    page++;
+    if (commits.length < 100) break;
+
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  logger.info(`Mining ${owner}/${repo} complete: ${totalCommits} commits queued for detection`);
+  return totalCommits;
+}
+
+// --- Bull queue processor ---
+
+detectQueue.process(5, async (job) => {
+  const { commitSha, repoId, diffText } = job.data;
+
+  if (!diffText) {
+    await markCommitProcessed(commitSha, repoId);
+    return;
+  }
+
+  const changes = parseDiff(diffText);
+
+  for (const change of changes) {
+    const language = getLanguage(change.file);
+    if (!language || !['javascript', 'typescript'].includes(language)) {
+      continue;
+    }
+
+    for (const pattern of patterns) {
+      if (!pattern.languages.includes(language)) continue;
+
+      // Detect in added lines
+      if (change.addedLines.length > 0) {
+        const code = change.addedLines.join('\n');
+        const result = await detector.detect(code, language, pattern);
+        if (result.detected) {
+          await storeOccurrence(commitSha, repoId, pattern.id, 'add', change.file, result);
         }
       }
 
-      page++;
-      hasMore = commits.length === 100;
-
-      // Rate limit protection
-      await new Promise(r => setTimeout(r, 1000));
-
-    } catch (error) {
-      console.error(`Error mining ${owner}/${repo} page ${page}:`, error.message);
-      break;
+      // Detect in removed lines
+      if (change.removedLines.length > 0) {
+        const code = change.removedLines.join('\n');
+        const result = await detector.detect(code, language, pattern);
+        if (result.detected) {
+          await storeOccurrence(commitSha, repoId, pattern.id, 'remove', change.file, result);
+        }
+      }
     }
   }
 
-  console.log(`✅ Mining ${owner}/${repo} complete: ${totalIssues} issues found`);
-  return totalIssues;
-}
+  await markCommitProcessed(commitSha, repoId);
+});
 
-async function processMiningTask(message) {
-  try {
-    const { owner, repo } = JSON.parse(message);
-    return await mineRepository(owner, repo);
-  } catch (error) {
-    console.error('Error processing mining task:', error.message);
-    return 0;
-  }
-}
+detectQueue.on('failed', (job, err) => {
+  logger.error(`Detection job failed for commit ${job.data.commitSha}: ${err.message}`);
+});
+
+// --- Start ---
 
 async function start() {
-  await dbPool.connect();
-  await redisClient.connect();
-  console.log('✅ Worker connected to DB and Redis');
+  patterns = loadPatternConfigs();
+  logger.info(`Loaded ${patterns.length} pattern configs`);
 
-  // Listen for mining tasks
-  redisClient.subscribe('patterns:mine', (message) => {
-    processMiningTask(message).catch(console.error);
+  const redisClient = new RedisClient();
+  await redisClient.connect();
+  detector = new PatternDetector(redisClient);
+
+  logger.info('Worker connected to Redis');
+
+  // Listen for mining tasks via pub/sub
+  await redisClient.subscribe('patterns:mine', async (message) => {
+    try {
+      const data = JSON.parse(message);
+      const owner = data.repoOwner || data.owner;
+      const repo = data.repoName || data.repo;
+
+      if (!owner || !repo) {
+        logger.error('Invalid mining task: missing owner or repo');
+        return;
+      }
+
+      await mineRepository(owner, repo);
+    } catch (error) {
+      logger.error(`Error processing mining task: ${error.message}`);
+    }
   });
 
-  // Option: Start mining immediately for a repo
-  // Uncomment to auto-start:
-  // const result = await mineRepository(OWNER, REPO_NAME);
-  // console.log(`Mining complete: ${result} issues found`);
+  logger.info('Waiting for mining tasks...');
 
-  console.log('📡 Waiting for mining tasks...');
+  // Graceful shutdown
+  const shutdown = async () => {
+    logger.info('Shutting down worker...');
+    await detectQueue.close();
+    await redisClient.disconnect();
+    await pool.end();
+    process.exit(0);
+  };
 
-  // Keep running
-  await new Promise(() => {});
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 start().catch(error => {
-  console.error('Worker error:', error);
+  logger.error('Worker error:', error);
   process.exit(1);
 });

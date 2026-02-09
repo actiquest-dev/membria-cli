@@ -1,28 +1,47 @@
 require('dotenv').config();
-const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
+const { pool } = require('../utils/database');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'membria',
-  user: process.env.DB_USER || 'membria',
-  password: process.env.DB_PASSWORD,
-});
+async function ensureMigrationsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
+      applied_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+}
+
+async function getAppliedMigrations() {
+  const result = await pool.query('SELECT name FROM _migrations ORDER BY id');
+  return new Set(result.rows.map(r => r.name));
+}
 
 async function migrate() {
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS patterns (
-        id SERIAL PRIMARY KEY,
-        owner VARCHAR(255) NOT NULL,
-        repo VARCHAR(255) NOT NULL,
-        sha VARCHAR(255) NOT NULL,
-        issues JSONB DEFAULT '[]',
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+    await ensureMigrationsTable();
+    const applied = await getAppliedMigrations();
 
-    console.log('✅ Database migrated');
+    const migrationsDir = path.join(__dirname, 'migrations');
+    const files = fs.readdirSync(migrationsDir)
+      .filter(f => f.endsWith('.js'))
+      .sort();
+
+    for (const file of files) {
+      const migration = require(path.join(migrationsDir, file));
+
+      if (applied.has(migration.name)) {
+        continue;
+      }
+
+      console.log(`Running migration: ${migration.name}`);
+      await migration.up(pool);
+      await pool.query('INSERT INTO _migrations (name) VALUES ($1)', [migration.name]);
+      console.log(`  Applied: ${migration.name}`);
+    }
+
+    console.log('Database migrations complete');
     await pool.end();
   } catch (error) {
     console.error('Migration error:', error);
