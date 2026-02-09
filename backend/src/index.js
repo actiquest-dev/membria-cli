@@ -69,6 +69,9 @@ app.get('/api/stats', async (req, res) => {
 
 app.get('/api/occurrences', async (req, res) => {
   try {
+    const offset = parseInt(req.query.offset) || 0;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
     const result = await dbPool.query(`
       SELECT
         po.pattern_id, po.action, po.file_path, po.line_number,
@@ -77,8 +80,8 @@ app.get('/api/occurrences', async (req, res) => {
       FROM pattern_occurrences po
       JOIN repos r ON po.repo_id = r.id
       ORDER BY po.created_at DESC
-      LIMIT 100
-    `);
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });

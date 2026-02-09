@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Membria - Pattern Detector Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -11,7 +12,7 @@
     background: #0d1117;
     color: #c9d1d9;
     padding: 20px;
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
   }
   header {
@@ -75,6 +76,102 @@
     align-items: center;
   }
 
+  .chart-section {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    padding: 20px;
+  }
+  .chart-container {
+    position: relative;
+    height: 400px;
+  }
+
+  /* Chat section */
+  .chat-section {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .chat-header {
+    font-size: 14px;
+    font-weight: 600;
+    color: #2a9d8f;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #chatMessages {
+    height: 300px;
+    overflow-y: auto;
+    background: #0d1117;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: 1px solid #21262d;
+  }
+  .msg {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    max-width: 80%;
+    word-wrap: break-word;
+  }
+  .msg.user {
+    background: #2a9d8f;
+    margin-left: auto;
+    color: #fff;
+  }
+  .msg.ai {
+    background: #4dabf7;
+    color: #fff;
+    position: relative;
+  }
+  .msg.ai.typing::after {
+    content: '';
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    width: 6px;
+    height: 6px;
+    background: rgba(255,255,255,0.7);
+    border-radius: 50%;
+    animation: typing 1s infinite;
+  }
+  @keyframes typing {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
+  .chat-input {
+    display: flex;
+    gap: 10px;
+  }
+  #chatInput {
+    flex: 1;
+    padding: 12px 18px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+  }
+  #chatInput:focus { border-color: #58a6ff; }
+  #sendBtn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    background: #238636;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  #sendBtn:hover { background: #2ea043; }
+
   .patterns-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -136,7 +233,70 @@
   .mine-msg.ok { color: #3fb950; }
   .mine-msg.err { color: #f85149; }
 
+  .pipeline-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: #21262d;
+  }
+  .pipeline-svc {
+    background: #161b22;
+    padding: 16px;
+  }
+  .pipeline-svc .svc-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .pipeline-svc .svc-name { font-size: 13px; font-weight: 600; }
+  .pipeline-svc .svc-stat { font-size: 12px; color: #8b949e; }
+  .pipeline-svc .svc-detail { font-size: 11px; color: #6e7681; margin-top: 3px; }
+  .pipeline-svc .progress-bar {
+    height: 4px;
+    background: #21262d;
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+  .pipeline-svc .progress-fill {
+    height: 100%;
+    background: #3fb950;
+    border-radius: 2px;
+    transition: width 0.5s;
+  }
+
   .empty { padding: 32px; text-align: center; color: #484f58; }
+
+  /* Infinite scroll for detections */
+  .detections-container {
+    max-height: 500px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .detections-container table {
+    margin-bottom: 0;
+  }
+  .load-more-trigger {
+    padding: 20px;
+    text-align: center;
+    color: #8b949e;
+    font-size: 13px;
+  }
+  .load-more-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #21262d;
+    border-top-color: #58a6ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
 </style>
 </head>
 <body>
@@ -153,7 +313,52 @@
   <div class="card"><div class="label">Repos</div><div class="value" id="statRepos">-</div></div>
   <div class="card"><div class="label">Commits</div><div class="value" id="statCommits">-</div><div class="sub" id="statCommitsSub"></div></div>
   <div class="card"><div class="label">Antipatterns</div><div class="value" id="statOccurrences">-</div></div>
-  <div class="card"><div class="label">Detection</div><div class="value" id="statMethod">regex</div><div class="sub">Stage 1</div></div>
+  <div class="card"><div class="label">Diffs Loaded</div><div class="value" id="statDiffs">-</div><div class="sub" id="statDiffsSub"></div></div>
+</div>
+
+<div class="section" style="margin-bottom:16px">
+  <div class="section-header">
+    <span>Pipeline Activity</span>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:12px;color:#8b949e;font-weight:400" id="pipelineStatus"></span>
+      <button onclick="startPipeline()" id="startPipelineBtn" style="background:#238636;color:#fff;border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Start Pipeline</button>
+      <button onclick="stopPipeline()" id="stopPipelineBtn" style="background:#da3633;color:#fff;border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Stop</button>
+    </div>
+  </div>
+  <div class="pipeline-grid">
+    <div class="pipeline-svc">
+      <div class="svc-header">
+        <div class="dot" id="svcMinerDot"></div>
+        <span class="svc-name">Miner (API)</span>
+      </div>
+      <div class="svc-stat" id="svcMinerStat">-</div>
+    </div>
+    <div class="pipeline-svc">
+      <div class="svc-header">
+        <div class="dot" id="svcDiffDot"></div>
+        <span class="svc-name">Diff Loader</span>
+      </div>
+      <div class="svc-stat" id="svcDiffStat">-</div>
+      <div class="svc-detail" id="svcDiffDetail"></div>
+      <div class="progress-bar"><div class="progress-fill" id="svcDiffProgress" style="width:0%"></div></div>
+    </div>
+    <div class="pipeline-svc">
+      <div class="svc-header">
+        <div class="dot" id="svcWorkerDot"></div>
+        <span class="svc-name">Pattern Worker</span>
+      </div>
+      <div class="svc-stat" id="svcWorkerStat">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="chart-section">
+  <div class="section-header" style="border:none;padding:0 0 15px 0;">
+    <span>Patterns: Add (Green) vs Remove (Red)</span>
+  </div>
+  <div class="chart-container">
+    <canvas id="patternsChart"></canvas>
+  </div>
 </div>
 
 <div class="section">
@@ -168,8 +373,11 @@
     <span>Recent Detections</span>
     <span style="font-size:12px;color:#8b949e;font-weight:400" id="refreshTimer"></span>
   </div>
-  <div id="occurrencesTable">
-    <div class="empty">No antipatterns detected yet. Mine a repository to start.</div>
+  <div class="detections-container" id="detectionsContainer">
+    <div id="occurrencesTable">
+      <div class="empty">No antipatterns detected yet. Mine a repository to start.</div>
+    </div>
+    <div class="load-more-trigger" id="loadMoreTrigger"></div>
   </div>
 </div>
 
@@ -183,9 +391,32 @@
   <div class="mine-msg" id="mineMsg"></div>
 </div>
 
+<div class="section" style="margin-bottom:16px">
+  <div class="section-header">
+    <span>Membria Research: Pre-AI vs AI-Era Antipatterns</span>
+    <button onclick="runResearch()" id="researchBtn" style="background:#238636;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Analyze</button>
+  </div>
+  <div id="researchOutput" style="padding:16px;font-size:13px;line-height:1.6;color:#c9d1d9;white-space:pre-wrap">
+    <div class="empty">Click "Analyze" to run debiasing analysis</div>
+  </div>
+</div>
+
+<div class="chat-section">
+  <div class="chat-header">Ask Membria about Anti-Patterns</div>
+  <div id="chatMessages"></div>
+  <div class="chat-input">
+    <input type="text" id="chatInput" placeholder="Ask about anti-patterns, AI vs Human code, etc.">
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
 <script>
 const API = '';
 let countdown = 10;
+let chart = null;
+let occurrencesOffset = 0;
+let occurrencesHasMore = true;
+let occurrencesLoading = false;
 
 async function fetchStats() {
   try {
@@ -196,65 +427,182 @@ async function fetchStats() {
     document.getElementById('statCommits').textContent = data.commits_total;
     document.getElementById('statCommitsSub').textContent =
       data.commits_processed + ' processed / ' + (data.commits_total - data.commits_processed) + ' pending';
-    document.getElementById('statOccurrences').textContent = data.occurrences;
+    document.getElementById('statOccurrences').textContent = data.occurrences.toLocaleString();
+
+    // Diff processing card
+    if (data.diffs_loaded !== undefined) {
+      document.getElementById('statDiffs').textContent = data.diffs_loaded.toLocaleString();
+      const pct = data.diffs_total > 0 ? Math.round(data.diffs_loaded / data.diffs_total * 100) : 0;
+      document.getElementById('statDiffsSub').textContent = data.diffs_pending.toLocaleString() + ' pending (' + pct + '%)';
+      document.getElementById('svcDiffStat').textContent =
+        data.diffs_loaded.toLocaleString() + ' / ' + data.diffs_total.toLocaleString() + ' (' + pct + '%)';
+      document.getElementById('svcDiffProgress').style.width = pct + '%';
+    }
+
+    // Pipeline stats
+    document.getElementById('svcMinerStat').textContent = data.repos + ' repos tracked';
+    document.getElementById('svcWorkerStat').textContent = data.occurrences.toLocaleString() + ' detections';
 
     // Patterns breakdown
     const grid = document.getElementById('patternsGrid');
     if (data.by_pattern.length === 0) {
       grid.innerHTML = '<div class="empty">No data yet</div>';
-      return;
-    }
+    } else {
+      const grouped = {};
+      data.by_pattern.forEach(p => {
+        if (!grouped[p.pattern_id]) grouped[p.pattern_id] = { add: 0, remove: 0 };
+        grouped[p.pattern_id][p.action] = parseInt(p.count);
+      });
 
-    const grouped = {};
-    data.by_pattern.forEach(p => {
-      if (!grouped[p.pattern_id]) grouped[p.pattern_id] = { add: 0, remove: 0 };
-      grouped[p.pattern_id][p.action] = parseInt(p.count);
-    });
-
-    grid.innerHTML = Object.entries(grouped).map(([id, c]) => `
-      <div class="pattern-item">
-        <div class="name">${id}</div>
-        <div class="counts">
-          <span class="badge-add">+${c.add} added</span>
-          <span class="badge-remove">-${c.remove} removed</span>
+      grid.innerHTML = Object.entries(grouped).map(([id, c]) => `
+        <div class="pattern-item">
+          <div class="name">${id}</div>
+          <div class="counts">
+            <span class="badge-add">+${c.add}</span>
+            <span class="badge-remove">-${c.remove}</span>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `).join('');
+
+      // Update chart
+      updateChart(grouped);
+    }
   } catch(e) {
     console.error('Stats error:', e);
   }
 }
 
-async function fetchOccurrences() {
+function updateChart(grouped) {
+  const labels = Object.keys(grouped).map(k => k.replace(/_/g, ' '));
+  const addData = Object.values(grouped).map(d => d.add);
+  const removeData = Object.values(grouped).map(d => -d.remove);
+
+  if (chart) {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = removeData;
+    chart.data.datasets[1].data = addData;
+    chart.update();
+    return;
+  }
+
+  const ctx = document.getElementById('patternsChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Removed (fixed)',
+          data: removeData,
+          backgroundColor: '#e63946',
+          borderRadius: 4
+        },
+        {
+          label: 'Added (introduced)',
+          data: addData,
+          backgroundColor: '#2a9d8f',
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: '#c9d1d9', font: { size: 13 }, padding: 15 }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.raw;
+              const type = ctx.dataset.label.includes('Added') ? 'Added' : 'Removed';
+              return type + ': ' + Math.abs(val);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: {
+            color: '#8b949e',
+            callback: (v) => Math.abs(v)
+          }
+        },
+        y: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { color: '#c9d1d9', font: { size: 11 } }
+        }
+      }
+    }
+  });
+}
+
+async function fetchOccurrences(append = false) {
+  if (occurrencesLoading || !occurrencesHasMore) return;
+
+  occurrencesLoading = true;
+  updateLoadMoreTrigger();
+
   try {
-    const res = await fetch(API + '/api/occurrences');
+    const res = await fetch(API + `/api/occurrences?offset=${occurrencesOffset}&limit=20`);
     const data = await res.json();
     const container = document.getElementById('occurrencesTable');
 
-    if (data.length === 0) {
+    if (data.length === 0 && !append) {
       container.innerHTML = '<div class="empty">No antipatterns detected yet. Mine a repository to start.</div>';
+      occurrencesHasMore = false;
       return;
     }
 
-    container.innerHTML = `
-      <table>
-        <thead><tr>
-          <th>Pattern</th><th>Repo</th><th>File</th><th>Action</th><th>Confidence</th><th>Method</th><th>Time</th>
-        </tr></thead>
-        <tbody>${data.map(o => `
-          <tr>
-            <td style="color:#58a6ff">${o.pattern_id}</td>
-            <td>${o.repo}</td>
-            <td class="file-path" title="${o.file_path}">${o.file_path}</td>
-            <td class="${o.action === 'add' ? 'action-add' : 'action-remove'}">${o.action}</td>
-            <td class="confidence">${(o.confidence * 100).toFixed(0)}%</td>
-            <td>${o.detection_method}</td>
-            <td class="time">${timeAgo(o.created_at)}</td>
-          </tr>
-        `).join('')}</tbody>
-      </table>`;
+    const rows = data.map(o => `
+      <tr>
+        <td style="color:#58a6ff">${o.pattern_id}</td>
+        <td>${o.repo}</td>
+        <td class="file-path" title="${o.file_path}">${o.file_path}</td>
+        <td class="${o.action === 'add' ? 'action-add' : 'action-remove'}">${o.action}</td>
+        <td class="confidence">${(o.confidence * 100).toFixed(0)}%</td>
+        <td class="time">${timeAgo(o.created_at)}</td>
+      </tr>
+    `).join('');
+
+    if (!append) {
+      container.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Pattern</th><th>Repo</th><th>File</th><th>Action</th><th>Confidence</th><th>Time</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      occurrencesOffset = 0;
+    } else {
+      const tbody = container.querySelector('tbody');
+      if (tbody) tbody.insertAdjacentHTML('beforeend', rows);
+    }
+
+    occurrencesOffset += data.length;
+    occurrencesHasMore = data.length === 20;
   } catch(e) {
     console.error('Occurrences error:', e);
+  } finally {
+    occurrencesLoading = false;
+    updateLoadMoreTrigger();
+  }
+}
+
+function updateLoadMoreTrigger() {
+  const trigger = document.getElementById('loadMoreTrigger');
+  if (!occurrencesHasMore) {
+    trigger.innerHTML = '<em>— end of detections —</em>';
+  } else if (occurrencesLoading) {
+    trigger.innerHTML = '<span class="load-more-spinner"></span>Loading more...';
+  } else {
+    trigger.innerHTML = '';
   }
 }
 
@@ -269,6 +617,115 @@ async function checkHealth() {
   } catch(e) {
     dot.className = 'dot';
     txt.textContent = 'offline';
+  }
+}
+
+async function fetchPipeline() {
+  try {
+    const res = await fetch(API + '/api/services');
+    if (!res.ok) throw new Error('not available');
+    const data = await res.json();
+    const services = data.services || data;
+    const mapping = {
+      'membria-miner': 'svcMinerDot',
+      'membria-diff-loader': 'svcDiffDot',
+      'membria-worker': 'svcWorkerDot'
+    };
+    let onlineCount = 0;
+    (Array.isArray(services) ? services : []).forEach(svc => {
+      for (const [name, dotId] of Object.entries(mapping)) {
+        if (svc.name && svc.name.includes(name)) {
+          const dot = document.getElementById(dotId);
+          const isOnline = svc.status === 'online';
+          if (dot) dot.className = isOnline ? 'dot online pulse' : 'dot';
+          if (isOnline) onlineCount++;
+          if (name === 'membria-diff-loader' && svc.uptime) {
+            const uptime = Date.now() - svc.uptime;
+            if (uptime > 0) {
+              const h = Math.floor(uptime / 3600000);
+              const m = Math.floor((uptime % 3600000) / 60000);
+              document.getElementById('svcDiffDetail').textContent = 'uptime ' + h + 'h ' + m + 'm';
+            }
+          }
+        }
+      }
+    });
+    document.getElementById('pipelineStatus').textContent = onlineCount + '/3 services online';
+  } catch(e) {
+    document.getElementById('pipelineStatus').textContent = 'status unavailable';
+  }
+}
+
+async function startPipeline() {
+  const btn = document.getElementById('startPipelineBtn');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const res = await fetch(API + '/api/pipeline/start', { method: 'POST' });
+    const data = await res.json();
+    document.getElementById('pipelineStatus').textContent = data.message || 'Started';
+    setTimeout(() => fetchPipeline(), 2000);
+  } catch(e) {
+    document.getElementById('pipelineStatus').textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Start Pipeline';
+  }
+}
+
+async function stopPipeline() {
+  const btn = document.getElementById('stopPipelineBtn');
+  btn.disabled = true;
+  btn.textContent = 'Stopping...';
+  try {
+    const res = await fetch(API + '/api/pipeline/stop', { method: 'POST' });
+    const data = await res.json();
+    document.getElementById('pipelineStatus').textContent = data.message || 'Stopped';
+    setTimeout(() => fetchPipeline(), 2000);
+  } catch(e) {
+    document.getElementById('pipelineStatus').textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Stop';
+  }
+}
+
+async function runResearch() {
+  const btn = document.getElementById('researchBtn');
+  const output = document.getElementById('researchOutput');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+  output.innerHTML = '<em style="color:#8b949e">Membria is analyzing antipattern data across eras...</em>';
+
+  try {
+    const prompt = `You are a senior software engineering researcher analyzing antipattern data from the Membria project.
+
+Your task: Compare pre-AI era (repos created before 2023, no AI influence) vs AI-era (repos created 2024+, likely AI-generated code) antipattern frequencies.
+
+Analyze the data available in the database and write a research summary covering:
+1. Overall antipattern density: how many antipatterns per 1000 commits in each era?
+2. Which antipatterns are MORE common in AI-era code? Why might that be?
+3. Which antipatterns are LESS common in AI-era code? What does that suggest?
+4. Top 3 most surprising findings
+5. Hypothesis: Are AI coding assistants propagating certain antipatterns from their training data?
+6. Recommendations for debiasing LLM training data based on these findings
+
+Format your response as clear, concise paragraphs with bold headers. Use specific numbers from the data. This is for a research dashboard, so be data-driven and insightful.`;
+
+    const res = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: prompt })
+    });
+    const data = await res.json();
+    const reply = data.response?.reply || data.error || 'No analysis available';
+    output.innerHTML = reply.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#58a6ff">$1</strong>')
+      .replace(/\n/g, '<br>');
+  } catch(err) {
+    output.innerHTML = '<span style="color:#f85149">Error: ' + err.message + '</span>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analyze';
   }
 }
 
@@ -313,9 +770,109 @@ function timeAgo(dateStr) {
 }
 
 async function refresh() {
-  await Promise.all([checkHealth(), fetchStats(), fetchOccurrences()]);
+  occurrencesOffset = 0;
+  occurrencesHasMore = true;
+  await Promise.all([checkHealth(), fetchStats(), fetchOccurrences(), fetchPipeline()]);
   countdown = 10;
 }
+
+// Infinite scroll for detections
+const detectionsContainer = document.getElementById('detectionsContainer');
+detectionsContainer.addEventListener('scroll', () => {
+  const scrollTop = detectionsContainer.scrollTop;
+  const scrollHeight = detectionsContainer.scrollHeight;
+  const clientHeight = detectionsContainer.clientHeight;
+
+  if (scrollTop + clientHeight >= scrollHeight - 50) {
+    fetchOccurrences(true);
+  }
+});
+
+// Chat functionality
+const msgs = document.getElementById('chatMessages');
+const chatInp = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const CHAT_STORAGE_KEY = 'membria_chat_history';
+
+function loadChatHistory() {
+  try {
+    const history = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '[]');
+    history.forEach(msg => addMsgToDOM(msg.text, msg.isUser, false));
+  } catch(e) {
+    console.error('Failed to load chat history:', e);
+  }
+}
+
+function saveChatHistory() {
+  const history = Array.from(msgs.children).map(m => ({
+    text: m.textContent,
+    isUser: m.classList.contains('user')
+  }));
+  localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(history));
+}
+
+function addMsg(text, isUser, save = true) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (isUser ? 'user' : 'ai');
+  d.textContent = text;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+  if (save) saveChatHistory();
+}
+
+function addMsgToDOM(text, isUser) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (isUser ? 'user' : 'ai');
+  d.textContent = text;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function sendChat() {
+  const text = chatInp.value.trim();
+  if (!text) return;
+
+  addMsg(text, true);
+  chatInp.value = '';
+  sendBtn.disabled = true;
+
+  // Show "thinking" indicator
+  const thinkingId = 'thinking-' + Date.now();
+  const thinkingDiv = document.createElement('div');
+  thinkingDiv.className = 'msg ai typing';
+  thinkingDiv.id = thinkingId;
+  thinkingDiv.innerHTML = '<em>Membria is thinking...</em>';
+  msgs.appendChild(thinkingDiv);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    const res = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text })
+    });
+    const data = await res.json();
+
+    // Remove thinking indicator
+    const thinkingEl = document.getElementById(thinkingId);
+    if (thinkingEl) thinkingEl.remove();
+
+    const reply = data.response?.reply || data.error || 'No response';
+    addMsg(reply, false);
+  } catch (err) {
+    const thinkingEl = document.getElementById(thinkingId);
+    if (thinkingEl) thinkingEl.remove();
+    addMsg('Error: ' + err.message, false);
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+// Load chat history on page load
+loadChatHistory();
+
+sendBtn.onclick = sendChat;
+chatInp.onkeypress = (e) => { if (e.key === 'Enter') sendChat(); };
 
 setInterval(() => {
   countdown--;
