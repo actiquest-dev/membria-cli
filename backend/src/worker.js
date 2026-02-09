@@ -19,6 +19,8 @@ const redisClient = redis.createClient({
 });
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const OWNER = process.env.GITHUB_OWNER || 'facebook';
+const REPO_NAME = process.env.GITHUB_REPO || 'react';
 
 async function fetchRepo(owner, name, page = 1) {
   try {
@@ -32,6 +34,8 @@ async function fetchRepo(owner, name, page = 1) {
   } catch (error) {
     if (error.response?.status === 403) {
       console.error('GitHub API rate limit reached');
+    } else if (error.response?.status === 404) {
+      console.error(`Repo ${owner}/${name} not found`);
     }
     throw error;
   }
@@ -40,48 +44,7 @@ async function fetchRepo(owner, name, page = 1) {
 async function analyzeCommit(commit) {
   const messages = commit.commit.message.split('\n').filter(m => m.trim());
 
-  // Check for common patterns using AI
-  try {
-    const prompt = `Analyze this git commit message for code quality issues.
-Commit message: "${messages.join(' - ')}"
-Return JSON with issues: ${JSON.stringify(issues)} or [] if none.
-
-Return format:
-{"issues": [{"type": "todo|fixme|bug|refactor|security", "message": "issue text"}]}`;
-
-    const response = await axios.post(
-      process.env.GLM4_API_URL,
-      {
-        model: "glm-4.5-air",
-        messages: [
-          { role: "user", content: prompt }
-        ]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.GLM4_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    const data = response.data;
-    const content = data.choices?.[0]?.message?.content || '{}';
-
-    try {
-      return JSON.parse(content);
-    } catch (e) {
-      console.error('Failed to parse AI response:', content);
-      return { issues: [] };
-    }
-  } catch (error) {
-    console.error('AI analysis error:', error.message);
-    // Fallback to simple patterns
-    return checkPatterns(messages);
-  }
-}
-
-function checkPatterns(messages) {
+  // Simple pattern matching (AI would be better but slower)
   const issues = [];
 
   if (messages.some(m => m.trim().startsWith('TODO:') || m.trim().startsWith('FIXME'))) {
@@ -92,31 +55,30 @@ function checkPatterns(messages) {
     issues.push({ type: 'fixme', message: m.trim() });
   }
 
-  return { issues };
+  return issues;
 }
 
-async function savePattern(owner, name, sha, issues) {
+async function savePattern(owner, repo, sha, issues) {
   try {
     await dbPool.query(
       `INSERT INTO patterns (owner, repo, sha, issues, created_at)
        VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (sha) DO NOTHING`,
-      [owner, name, sha, JSON.stringify(issues)]
+      [owner, repo, sha, JSON.stringify(issues)]
     );
   } catch (error) {
     console.error('Failed to save pattern:', error.message);
   }
 }
 
-async function processMiningTask(message) {
-  try {
-    const { owner, repo } = JSON.parse(message);
+async function mineRepository(owner, repo) {
+  console.log(`🚀 Mining ${owner}/${repo}...`);
+  let page = 1;
+  let hasMore = true;
+  let totalIssues = 0;
 
-    // Fetch commits
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
+  while (hasMore) {
+    try {
       const commits = await fetchRepo(owner, repo, page);
 
       if (commits.length === 0) {
@@ -130,17 +92,34 @@ async function processMiningTask(message) {
 
         if (issues.length > 0) {
           await savePattern(owner, repo, sha, issues);
-          console.log(`Found ${issues.length} issues in ${commit.sha.substring(0, 7)}:`, issues);
+          totalIssues += issues.length;
+          console.log(`✓ ${sha.substring(0, 7)}: ${issues.length} issues`);
         }
       }
 
       page++;
       hasMore = commits.length === 100;
-    }
 
-    console.log(`Mining complete for ${owner}/${repo}`);
+      // Rate limit protection
+      await new Promise(r => setTimeout(r, 1000));
+
+    } catch (error) {
+      console.error(`Error mining ${owner}/${repo} page ${page}:`, error.message);
+      break;
+    }
+  }
+
+  console.log(`✅ Mining ${owner}/${repo} complete: ${totalIssues} issues found`);
+  return totalIssues;
+}
+
+async function processMiningTask(message) {
+  try {
+    const { owner, repo } = JSON.parse(message);
+    return await mineRepository(owner, repo);
   } catch (error) {
     console.error('Error processing mining task:', error.message);
+    return 0;
   }
 }
 
@@ -154,10 +133,15 @@ async function start() {
     processMiningTask(message).catch(console.error);
   });
 
+  // Option: Start mining immediately for a repo
+  // Uncomment to auto-start:
+  // const result = await mineRepository(OWNER, REPO_NAME);
+  // console.log(`Mining complete: ${result} issues found`);
+
   console.log('📡 Waiting for mining tasks...');
 
-  // Start listening
-  await new Promise(() => {}); // Keep running
+  // Keep running
+  await new Promise(() => {});
 }
 
 start().catch(error => {
