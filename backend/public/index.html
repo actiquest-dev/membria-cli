@@ -735,6 +735,7 @@ Format your response as clear, concise paragraphs with bold headers. Use specifi
     const data = await res.json();
     const reply = data.response?.reply || data.error || 'No analysis available';
     output.innerHTML = marked.parse(reply);
+    localStorage.setItem('membria_research', JSON.stringify({ text: reply, ts: Date.now() }));
   } catch(err) {
     output.innerHTML = '<span style="color:#f85149">Error: ' + err.message + '</span>';
   } finally {
@@ -742,6 +743,16 @@ Format your response as clear, concise paragraphs with bold headers. Use specifi
     btn.textContent = 'Analyze';
   }
 }
+
+// Restore research on load
+(function loadResearch() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('membria_research'));
+    if (saved && saved.text) {
+      document.getElementById('researchOutput').innerHTML = marked.parse(saved.text);
+    }
+  } catch(e) {}
+})();
 
 async function mineRepo() {
   const owner = document.getElementById('mineOwner').value.trim();
