@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Membria - Pattern Detector Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -266,6 +267,20 @@
     transition: width 0.5s;
   }
 
+  #researchOutput h1, #researchOutput h2, #researchOutput h3 { color: #58a6ff; margin: 16px 0 8px; }
+  #researchOutput h1 { font-size: 18px; }
+  #researchOutput h2 { font-size: 15px; }
+  #researchOutput h3 { font-size: 14px; }
+  #researchOutput p { margin: 8px 0; }
+  #researchOutput ul, #researchOutput ol { margin: 8px 0; padding-left: 24px; }
+  #researchOutput li { margin: 4px 0; }
+  #researchOutput strong { color: #f0f6fc; }
+  #researchOutput code { background: #0d1117; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  #researchOutput blockquote { border-left: 3px solid #58a6ff; padding-left: 12px; color: #8b949e; margin: 8px 0; }
+  #researchOutput table { border-collapse: collapse; margin: 8px 0; }
+  #researchOutput th, #researchOutput td { border: 1px solid #21262d; padding: 6px 10px; font-size: 12px; }
+  #researchOutput th { background: #0d1117; color: #58a6ff; }
+
   .empty { padding: 32px; text-align: center; color: #484f58; }
 
   /* Infinite scroll for detections */
@@ -396,7 +411,7 @@
     <span>Membria Research: Pre-AI vs AI-Era Antipatterns</span>
     <button onclick="runResearch()" id="researchBtn" style="background:#238636;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Analyze</button>
   </div>
-  <div id="researchOutput" style="padding:16px;font-size:13px;line-height:1.6;color:#c9d1d9;white-space:pre-wrap">
+  <div id="researchOutput" style="padding:16px;font-size:13px;line-height:1.6;color:#c9d1d9">
     <div class="empty">Click "Analyze" to run debiasing analysis</div>
   </div>
 </div>
@@ -719,8 +734,7 @@ Format your response as clear, concise paragraphs with bold headers. Use specifi
     });
     const data = await res.json();
     const reply = data.response?.reply || data.error || 'No analysis available';
-    output.innerHTML = reply.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#58a6ff">$1</strong>')
-      .replace(/\n/g, '<br>');
+    output.innerHTML = marked.parse(reply);
   } catch(err) {
     output.innerHTML = '<span style="color:#f85149">Error: ' + err.message + '</span>';
   } finally {
@@ -814,7 +828,7 @@ function saveChatHistory() {
 function addMsg(text, isUser, save = true) {
   const d = document.createElement('div');
   d.className = 'msg ' + (isUser ? 'user' : 'ai');
-  d.textContent = text;
+  if (isUser) { d.textContent = text; } else { d.innerHTML = marked.parse(text); }
   msgs.appendChild(d);
   msgs.scrollTop = msgs.scrollHeight;
   if (save) saveChatHistory();
@@ -823,7 +837,7 @@ function addMsg(text, isUser, save = true) {
 function addMsgToDOM(text, isUser) {
   const d = document.createElement('div');
   d.className = 'msg ' + (isUser ? 'user' : 'ai');
-  d.textContent = text;
+  if (isUser) { d.textContent = text; } else { d.innerHTML = marked.parse(text); }
   msgs.appendChild(d);
   msgs.scrollTop = msgs.scrollHeight;
 }
