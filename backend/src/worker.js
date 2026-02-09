@@ -52,7 +52,7 @@ Return format:
     const response = await axios.post(
       process.env.GLM4_API_URL,
       {
-        model: "glm-4-flash",
+        model: "glm-4.5-air",
         messages: [
           { role: "user", content: prompt }
         ]
