@@ -38,21 +38,61 @@ async function fetchRepo(owner, name, page = 1) {
 }
 
 async function analyzeCommit(commit) {
-  const messages = commit.commit.message.split('\n');
+  const messages = commit.commit.message.split('\n').filter(m => m.trim());
 
-  // Check for common patterns
+  // Check for common patterns using AI
+  try {
+    const prompt = `Analyze this git commit message for code quality issues.
+Commit message: "${messages.join(' - ')}"
+Return JSON with issues: ${JSON.stringify(issues)} or [] if none.
+
+Return format:
+{"issues": [{"type": "todo|fixme|bug|refactor|security", "message": "issue text"}]}`;
+
+    const response = await axios.post(
+      process.env.GLM4_API_URL,
+      {
+        model: "glm-4-flash",
+        messages: [
+          { role: "user", content: prompt }
+        ]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GLM4_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const data = response.data;
+    const content = data.choices?.[0]?.message?.content || '{}';
+
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.error('Failed to parse AI response:', content);
+      return { issues: [] };
+    }
+  } catch (error) {
+    console.error('AI analysis error:', error.message);
+    // Fallback to simple patterns
+    return checkPatterns(messages);
+  }
+}
+
+function checkPatterns(messages) {
   const issues = [];
 
-  // TODO: Add more patterns
   if (messages.some(m => m.trim().startsWith('TODO:') || m.trim().startsWith('FIXME'))) {
     issues.push({ type: 'todo', message: m.trim() });
   }
 
-  if (messages.some(m => m.trim().includes('fixme') || m.trim().includes('hack'))) {
+  if (messages.some(m => m.trim().toLowerCase().includes('fixme') || m.trim().toLowerCase().includes('hack'))) {
     issues.push({ type: 'fixme', message: m.trim() });
   }
 
-  return issues;
+  return { issues };
 }
 
 async function savePattern(owner, name, sha, issues) {
