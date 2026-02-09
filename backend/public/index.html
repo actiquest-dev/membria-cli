@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Membria - Pattern Detector Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #21262d;
+  }
+  header h1 { color: #58a6ff; font-size: 20px; font-weight: 600; }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #8b949e;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #f85149;
+  }
+  .dot.online { background: #3fb950; }
+  .dot.pulse { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card .label { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .value { font-size: 28px; font-weight: 700; color: #f0f6fc; margin-top: 4px; }
+  .card .sub { font-size: 11px; color: #8b949e; margin-top: 2px; }
+
+  .section {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .section-header {
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-bottom: 1px solid #21262d;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .patterns-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1px;
+    background: #21262d;
+  }
+  .pattern-item {
+    background: #161b22;
+    padding: 12px 16px;
+  }
+  .pattern-item .name { font-size: 13px; color: #58a6ff; }
+  .pattern-item .counts { font-size: 12px; color: #8b949e; margin-top: 4px; }
+  .pattern-item .counts span { margin-right: 12px; }
+  .badge-add { color: #3fb950; }
+  .badge-remove { color: #f85149; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 16px; color: #8b949e; font-weight: 500; font-size: 12px; border-bottom: 1px solid #21262d; }
+  td { padding: 8px 16px; border-bottom: 1px solid #21262d; }
+  tr:hover td { background: #1c2128; }
+  .action-add { color: #3fb950; }
+  .action-remove { color: #f85149; }
+  .confidence { color: #d2a8ff; }
+  .file-path { color: #8b949e; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .time { color: #8b949e; font-size: 12px; }
+
+  .mine-form {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+  }
+  .mine-form input {
+    flex: 1;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #c9d1d9;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+  }
+  .mine-form input:focus { border-color: #58a6ff; }
+  .mine-form input::placeholder { color: #484f58; }
+  .mine-form button {
+    background: #238636;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mine-form button:hover { background: #2ea043; }
+  .mine-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .mine-msg { padding: 0 16px 12px; font-size: 13px; }
+  .mine-msg.ok { color: #3fb950; }
+  .mine-msg.err { color: #f85149; }
+
+  .empty { padding: 32px; text-align: center; color: #484f58; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>membria <span style="color:#8b949e;font-weight:400">pattern detector</span></h1>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">connecting...</span>
+  </div>
+</header>
+
+<div class="cards" id="cards">
+  <div class="card"><div class="label">Repos</div><div class="value" id="statRepos">-</div></div>
+  <div class="card"><div class="label">Commits</div><div class="value" id="statCommits">-</div><div class="sub" id="statCommitsSub"></div></div>
+  <div class="card"><div class="label">Antipatterns</div><div class="value" id="statOccurrences">-</div></div>
+  <div class="card"><div class="label">Detection</div><div class="value" id="statMethod">regex</div><div class="sub">Stage 1</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">Patterns Breakdown</div>
+  <div class="patterns-grid" id="patternsGrid">
+    <div class="empty">No data yet</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <span>Recent Detections</span>
+    <span style="font-size:12px;color:#8b949e;font-weight:400" id="refreshTimer"></span>
+  </div>
+  <div id="occurrencesTable">
+    <div class="empty">No antipatterns detected yet. Mine a repository to start.</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-header">Mine Repository</div>
+  <div class="mine-form">
+    <input type="text" id="mineOwner" placeholder="owner (e.g. expressjs)">
+    <input type="text" id="mineRepo" placeholder="repo (e.g. express)">
+    <button id="mineBtn" onclick="mineRepo()">Mine</button>
+  </div>
+  <div class="mine-msg" id="mineMsg"></div>
+</div>
+
+<script>
+const API = '';
+let countdown = 10;
+
+async function fetchStats() {
+  try {
+    const res = await fetch(API + '/api/stats');
+    const data = await res.json();
+
+    document.getElementById('statRepos').textContent = data.repos;
+    document.getElementById('statCommits').textContent = data.commits_total;
+    document.getElementById('statCommitsSub').textContent =
+      data.commits_processed + ' processed / ' + (data.commits_total - data.commits_processed) + ' pending';
+    document.getElementById('statOccurrences').textContent = data.occurrences;
+
+    // Patterns breakdown
+    const grid = document.getElementById('patternsGrid');
+    if (data.by_pattern.length === 0) {
+      grid.innerHTML = '<div class="empty">No data yet</div>';
+      return;
+    }
+
+    const grouped = {};
+    data.by_pattern.forEach(p => {
+      if (!grouped[p.pattern_id]) grouped[p.pattern_id] = { add: 0, remove: 0 };
+      grouped[p.pattern_id][p.action] = parseInt(p.count);
+    });
+
+    grid.innerHTML = Object.entries(grouped).map(([id, c]) => `
+      <div class="pattern-item">
+        <div class="name">${id}</div>
+        <div class="counts">
+          <span class="badge-add">+${c.add} added</span>
+          <span class="badge-remove">-${c.remove} removed</span>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    console.error('Stats error:', e);
+  }
+}
+
+async function fetchOccurrences() {
+  try {
+    const res = await fetch(API + '/api/occurrences');
+    const data = await res.json();
+    const container = document.getElementById('occurrencesTable');
+
+    if (data.length === 0) {
+      container.innerHTML = '<div class="empty">No antipatterns detected yet. Mine a repository to start.</div>';
+      return;
+    }
+
+    container.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Pattern</th><th>Repo</th><th>File</th><th>Action</th><th>Confidence</th><th>Method</th><th>Time</th>
+        </tr></thead>
+        <tbody>${data.map(o => `
+          <tr>
+            <td style="color:#58a6ff">${o.pattern_id}</td>
+            <td>${o.repo}</td>
+            <td class="file-path" title="${o.file_path}">${o.file_path}</td>
+            <td class="${o.action === 'add' ? 'action-add' : 'action-remove'}">${o.action}</td>
+            <td class="confidence">${(o.confidence * 100).toFixed(0)}%</td>
+            <td>${o.detection_method}</td>
+            <td class="time">${timeAgo(o.created_at)}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>`;
+  } catch(e) {
+    console.error('Occurrences error:', e);
+  }
+}
+
+async function checkHealth() {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  try {
+    const res = await fetch(API + '/health');
+    const data = await res.json();
+    dot.className = 'dot online pulse';
+    txt.textContent = 'online';
+  } catch(e) {
+    dot.className = 'dot';
+    txt.textContent = 'offline';
+  }
+}
+
+async function mineRepo() {
+  const owner = document.getElementById('mineOwner').value.trim();
+  const repo = document.getElementById('mineRepo').value.trim();
+  const msg = document.getElementById('mineMsg');
+  const btn = document.getElementById('mineBtn');
+
+  if (!owner || !repo) {
+    msg.className = 'mine-msg err';
+    msg.textContent = 'Both owner and repo are required';
+    return;
+  }
+
+  btn.disabled = true;
+  msg.className = 'mine-msg';
+  msg.textContent = 'Queuing...';
+
+  try {
+    const res = await fetch(API + '/api/mine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoOwner: owner, repoName: repo }),
+    });
+    const data = await res.json();
+    msg.className = 'mine-msg ok';
+    msg.textContent = data.message || 'Queued successfully';
+  } catch(e) {
+    msg.className = 'mine-msg err';
+    msg.textContent = 'Failed: ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+function timeAgo(dateStr) {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return seconds + 's ago';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+  return Math.floor(seconds / 86400) + 'd ago';
+}
+
+async function refresh() {
+  await Promise.all([checkHealth(), fetchStats(), fetchOccurrences()]);
+  countdown = 10;
+}
+
+setInterval(() => {
+  countdown--;
+  document.getElementById('refreshTimer').textContent = 'refresh in ' + countdown + 's';
+  if (countdown <= 0) refresh();
+}, 1000);
+
+refresh();
+</script>
+</body>
+</html>
