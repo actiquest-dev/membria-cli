@@ -281,6 +281,7 @@
   #researchOutput th, #researchOutput td { border: 1px solid #21262d; padding: 6px 10px; font-size: 12px; }
   #researchOutput th { background: #0d1117; color: #58a6ff; }
 
+  /* Markdown inside chat messages */  .msg.ai h1, .msg.ai h2, .msg.ai h3, .msg.ai h4 { color: #fff; margin: 10px 0 6px; }  .msg.ai h1 { font-size: 16px; } .msg.ai h2 { font-size: 15px; } .msg.ai h3 { font-size: 14px; }  .msg.ai p { margin: 6px 0; line-height: 1.5; }  .msg.ai ul, .msg.ai ol { margin: 6px 0; padding-left: 20px; }  .msg.ai li { margin: 3px 0; }  .msg.ai strong { color: #fff; } .msg.ai em { color: rgba(255,255,255,0.8); }  .msg.ai code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px; font-size: 12px; }  .msg.ai pre { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }  .msg.ai pre code { background: none; padding: 0; }  .msg.ai blockquote { border-left: 3px solid rgba(255,255,255,0.4); padding-left: 10px; margin: 8px 0; color: rgba(255,255,255,0.7); }  .msg.ai table { border-collapse: collapse; margin: 8px 0; width: 100%; }  .msg.ai th, .msg.ai td { border: 1px solid rgba(255,255,255,0.2); padding: 5px 8px; font-size: 12px; }  .msg.ai hr { border: none; border-top: 1px solid rgba(255,255,255,0.2); margin: 12px 0; }  .msg.ai a { color: #7ee0ff; }
   .empty { padding: 32px; text-align: center; color: #484f58; }
 
   /* Infinite scroll for detections */
@@ -822,7 +823,7 @@ const CHAT_STORAGE_KEY = 'membria_chat_history';
 function loadChatHistory() {
   try {
     const history = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '[]');
-    history.forEach(msg => addMsgToDOM(msg.text, msg.isUser, false));
+    history.forEach(msg => { if (msg.html && !msg.isUser) { const d = document.createElement("div"); d.className = "msg ai"; d.innerHTML = msg.html; msgs.appendChild(d); } else { addMsgToDOM(msg.text, msg.isUser); } });
   } catch(e) {
     console.error('Failed to load chat history:', e);
   }
@@ -830,7 +831,7 @@ function loadChatHistory() {
 
 function saveChatHistory() {
   const history = Array.from(msgs.children).map(m => ({
-    text: m.textContent,
+    html: m.innerHTML, text: m.textContent,
     isUser: m.classList.contains('user')
   }));
   localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(history));
