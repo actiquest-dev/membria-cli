@@ -11,7 +11,7 @@ module.exports = function(app) {
 
       console.log('[Chat]', message.substring(0, 80));
 
-      // Run DB context + PageIndex RAG in parallel
+      // Run DB context + PageIndex keyword search in parallel (both instant)
       const [dbContext, ragContext] = await Promise.allSettled([
         getDBContext(),
         queryPageIndex(message),
@@ -20,7 +20,6 @@ module.exports = function(app) {
       const db = dbContext.status === 'fulfilled' ? dbContext.value : '';
       const rag = ragContext.status === 'fulfilled' ? ragContext.value : null;
 
-      // Build system prompt with both contexts
       let systemPrompt = `You are Membria AI — an expert assistant for code antipattern analysis and cognitive bias debiasing in software development.
 
 You have two knowledge sources:
@@ -29,7 +28,7 @@ You have two knowledge sources:
 
 Always format your response using Markdown:
 - Use **bold** for emphasis
-- Use ### headers for sections
+- Use ### headers for sections  
 - Use bullet lists and numbered lists
 - Use \`code\` for technical terms
 - Use > blockquotes for citations from research
@@ -40,17 +39,16 @@ Answer in the same language as the user's question.
 ${db}`;
 
       if (rag && rag.context) {
-        systemPrompt += `\n\n## Research Documents Context\n${rag.context}`;
+        systemPrompt += '\n\n## Research Documents Context\n' + rag.context;
       }
 
-      // Call GLM-4.5-Air
+      // Single GLM call with both contexts
       const apiKey = process.env.GLM4_API_KEY;
       const apiUrl = (process.env.GLM4_API_URL || 'https://api.z.ai/api/coding/paas/v4') + '/chat/completions';
-
       if (!apiKey) return res.status(500).json({ error: 'GLM API not configured' });
 
       const glmResponse = await axios.post(apiUrl, {
-        model: 'GLM-4.5-Air',
+        model: 'glm-4-plus',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: message },
@@ -59,7 +57,7 @@ ${db}`;
         max_tokens: 8000,
       }, {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': 'Bearer ' + apiKey,
           'Content-Type': 'application/json',
         },
         timeout: 120000,
@@ -68,11 +66,11 @@ ${db}`;
       const msg = glmResponse.data?.choices?.[0]?.message;
       let reply = msg?.content || msg?.reasoning_content || 'No response';
 
-      // Append RAG sources if available
+      // Append RAG sources
       if (rag && rag.sources && rag.sources.length > 0) {
-        reply += '\n\n---\n\n**📚 Sources:**\n';
+        reply += '\n\n---\n\n**Sources:**\n';
         rag.sources.forEach((s, i) => {
-          reply += `\n${i + 1}. **${s.document}** — ${s.title}`;
+          reply += '\n' + (i + 1) + '. **' + s.document + '** — ' + s.title;
         });
       }
 
@@ -81,7 +79,6 @@ ${db}`;
 
     } catch (error) {
       console.error('[Chat Error]', error.message);
-      if (error.response?.data) console.error('[GLM]', JSON.stringify(error.response.data).slice(0, 300));
       res.status(500).json({ error: error.message });
     }
   });
@@ -90,45 +87,44 @@ ${db}`;
 async function getDBContext() {
   try {
     const [stats, byPattern, byEra, recent] = await Promise.all([
-      pool.query(`SELECT 
-        (SELECT COUNT(*) FROM repos) as repos,
-        (SELECT COUNT(*) FROM commits) as commits,
-        (SELECT COUNT(*) FROM pattern_occurrences) as occurrences`),
-      pool.query(`SELECT pattern_id, action, COUNT(*) as cnt 
-        FROM pattern_occurrences GROUP BY pattern_id, action ORDER BY cnt DESC LIMIT 20`),
-      pool.query(`SELECT COALESCE(metadata->>'era', 'unknown') as era, COUNT(*) as repos,
-        COALESCE(SUM(stars), 0) as stars FROM repos GROUP BY metadata->>'era'`),
-      pool.query(`SELECT po.pattern_id, po.action, po.confidence, r.full_name, r.language
-        FROM pattern_occurrences po JOIN repos r ON r.id = po.repo_id
-        ORDER BY po.created_at DESC LIMIT 5`),
+      pool.query('SELECT (SELECT COUNT(*) FROM repos) as repos, (SELECT COUNT(*) FROM commits) as commits, (SELECT COUNT(*) FROM pattern_occurrences) as occurrences'),
+      pool.query('SELECT pattern_id, action, COUNT(*) as cnt FROM pattern_occurrences GROUP BY pattern_id, action ORDER BY cnt DESC LIMIT 20'),
+      pool.query("SELECT COALESCE(metadata->>'era', 'unknown') as era, COUNT(*) as repos, COALESCE(SUM(stars), 0) as stars FROM repos GROUP BY metadata->>'era'"),
+      pool.query('SELECT po.pattern_id, po.action, po.confidence, r.full_name, r.language FROM pattern_occurrences po JOIN repos r ON r.id = po.repo_id ORDER BY po.created_at DESC LIMIT 5'),
     ]);
-
     const s = stats.rows[0];
-    const lines = [
-      `Repos: ${s.repos}, Commits: ${s.commits}, Antipatterns detected: ${s.occurrences}`,
-      `Eras: ${byEra.rows.map(r => `${r.era}: ${r.repos} repos (${r.stars} stars)`).join(', ')}`,
-      `Top patterns: ${byPattern.rows.map(r => `${r.pattern_id}(${r.action}): ${r.cnt}`).join(', ')}`,
-      `Recent: ${recent.rows.map(r => `${r.pattern_id} in ${r.full_name}[${r.language}]`).join('; ')}`,
-    ];
-    return lines.join('\n');
+    return [
+      'Repos: ' + s.repos + ', Commits: ' + s.commits + ', Antipatterns: ' + s.occurrences,
+      'Eras: ' + byEra.rows.map(r => r.era + ': ' + r.repos + ' repos (' + r.stars + ' stars)').join(', '),
+      'Patterns: ' + byPattern.rows.map(r => r.pattern_id + '(' + r.action + '): ' + r.cnt).join(', '),
+      'Recent: ' + recent.rows.map(r => r.pattern_id + ' in ' + r.full_name + '[' + r.language + ']').join('; '),
+    ].join('\n');
   } catch (e) {
-    console.error('[DB Context Error]', e.message);
-    return 'Database context unavailable';
+    console.error('[DB Error]', e.message);
+    return 'Database unavailable';
   }
 }
 
 async function queryPageIndex(question) {
   try {
-    const response = await axios.post(`${PAGEINDEX_URL}/query`, {
+    // Use /search (keyword TF-IDF, no LLM) — instant response
+    const response = await axios.post(PAGEINDEX_URL + '/search', {
       question: question,
       top_k: 3,
-    }, { timeout: 120000 });
+    }, { timeout: 5000 });
 
-    const data = response.data;
-    return {
-      context: data.answer ? data.answer.slice(0, 3000) : '',
-      sources: data.sources || [],
-    };
+    const results = response.data.results || [];
+    if (results.length === 0) return null;
+
+    const context = results.map(function(r) {
+      return r.document + ' - ' + r.title + ':\n' + (r.content || '').slice(0, 1500);
+    }).join('\n\n').slice(0, 3000);
+
+    const sources = results.map(function(r) {
+      return { document: r.document, title: r.title };
+    });
+
+    return { context: context, sources: sources };
   } catch (e) {
     console.log('[PageIndex]', e.message);
     return null;
