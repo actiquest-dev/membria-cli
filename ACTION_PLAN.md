@@ -6,11 +6,48 @@
 
 ---
 
-## PHASE 0: Validation (THIS WEEK) 🔥
+## PHASE 0: Validation & Schema (THIS WEEK) 🔥
+
+### Task 0.0: Implement FalkorDB Schema 🚨 CRITICAL
+**Время:** 4-5 часов
+**Что:** Создать полный причинно-следственный граф (Decision → Outcome)
+
+**Текущий статус:** Только Decision nodes. 90% архитектуры не реализовано!
+
+**Что добавить:**
+1. Engram node creation
+2. CodeChange node tracking
+3. Outcome node + resolution
+4. [MADE_IN], [IMPLEMENTED_IN], [RESULTED_IN] relationships
+5. Update decision with outcome
+
+**Файлы для создания:**
+- `src/membria/graph_schema.py` - Node definitions
+- `src/membria/graph_queries.py` - Analytics queries
+
+**Файлы для обновления:**
+- `src/membria/graph.py` - Add methods for all node types
+- `src/membria/models.py` - Add Outcome, NegativeKnowledge models
+
+**Новые команды:**
+```bash
+membria decisions update <id> --outcome success|failure --resolved-at <date>
+membria graph stats  # Show node counts
+```
+
+**Ожидаемый результат:**
+- ✅ All 6 node types can be created
+- ✅ All relationships can be queried
+- ✅ Calibration query works
+- ✅ Rework pattern query works
+
+**Reference:** See `FALKORDB_SCHEMA.md` for complete specification
+
+---
 
 ### Task 0.1: Real FalkorDB Integration Test
 **Время:** 2-3 часа
-**Что:** Убедиться что граф работает с реальным FalkorDB
+**Что:** Убедиться что граф работает с реальным FalkorDB (с новой schema)
 
 ```bash
 # 1. Проверить что 192.168.0.105:6379 работает
@@ -521,19 +558,28 @@ class MCPDaemonServer:
 
 | Phase | Duration | Key Deliverable |
 |-------|----------|-----------------|
-| **Phase 0** | 1 week | Real FalkorDB working, Security fixed |
+| **Phase 0.0** | 4-5 days | ⚠️ **CRITICAL:** Full FalkorDB schema (6 nodes, 7 relationships) |
+| **Phase 0.1** | 3-4 days | Real FalkorDB test, Security fixes, Model updates |
 | **Phase 1** | 1 week | System tested on own project (dogfooding) |
 | **Phase 2** | 1 week | Real integration tests (no mocks) |
 | **Phase 3** | 2-3 weeks | CodeDigger integration, patterns working |
 | **Phase 4** | 1 week | Docs, cleanup, release |
 
-**Total: 5-7 weeks to production-ready**
+**Total: 6-8 weeks to production-ready** (was 5-7, but schema is essential)
+
+**Critical blocker:** Cannot proceed past Phase 0.0 until schema is implemented
 
 ---
 
 ## Success Criteria
 
 ### By end of Phase 0:
+- ✅ **Full FalkorDB schema implemented** (6 node types, 7 relationships)
+- ✅ Engram nodes created and linked
+- ✅ CodeChange nodes tracked
+- ✅ Outcome nodes + decision resolution
+- ✅ Calibration query works
+- ✅ Rework pattern query works
 - ✅ FalkorDB tests pass (real, not mock)
 - ✅ No security vulnerabilities
 - ✅ Latest model versions
