@@ -7,7 +7,9 @@ from typing import Optional
 import json
 
 from membria.signal_detector import SignalDetector
+from membria.haiku_extractor import HaikuExtractor
 from membria.config import ConfigManager
+from membria.graph import GraphClient
 
 extractor_app = typer.Typer(help="Decision extraction and signal detection")
 console = Console()
@@ -114,6 +116,7 @@ def log(
 @extractor_app.command("run")
 def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be extracted without saving"),
+    level3: bool = typer.Option(False, "--level3", help="Use Haiku for structured extraction (Level 3)"),
 ) -> None:
     """Run extraction on pending signals."""
     try:
@@ -126,40 +129,102 @@ def run(
 
         console.print(f"[bold]Processing {len(pending)} pending signal(s)[/bold]\n")
 
-        # In a real implementation, this would call Haiku for structured extraction
-        # For now, we'll simulate what would be extracted
-
-        table = Table(title="Would Extract")
+        table = Table(title="Extraction Results")
         table.add_column("Signal ID", style="cyan")
         table.add_column("Type", style="white")
-        table.add_column("Extracted Decision", style="green")
+        table.add_column("Decision/Text", style="green")
         table.add_column("Module", style="yellow")
 
         extracted_count = 0
-        for sig in pending:
-            # Simulate extraction (would call Haiku Level 3)
-            decision_text = sig["text"][:60]  # Would be full structured extraction
+        saved_count = 0
 
-            table.add_row(
-                sig["id"][:12],
-                sig["signal_type"],
-                decision_text,
-                sig["module"],
-            )
+        if level3:
+            # Level 3: Use Haiku for structured extraction
+            console.print("[dim]Using Claude Haiku for structured extraction (Level 3)...[/dim]\n")
+            extractor = HaikuExtractor()
 
-            if not dry_run:
-                # In real implementation, would save to graph and mark as extracted
-                detector.mark_extracted(sig["id"], f"dec_{sig['id'][:16]}")
-                extracted_count += 1
+            extracted = extractor.batch_extract(pending)
+
+            for sig in pending:
+                # Find corresponding extraction
+                ext = next((e for e in extracted if e.get("signal_id") == sig["id"]), None)
+
+                if ext:
+                    table.add_row(
+                        sig["id"][:12],
+                        "HIGH",
+                        ext.get("decision_statement", "")[:40],
+                        ext.get("module", sig["module"]),
+                    )
+                    extracted_count += 1
+
+                    if not dry_run:
+                        # Import and save to graph
+                        try:
+                            from membria.models import Decision
+                            import uuid
+
+                            decision = Decision(
+                                decision_id=f"dec_{uuid.uuid4().hex[:12]}",
+                                statement=ext.get("decision_statement", ""),
+                                alternatives=ext.get("alternatives", []),
+                                confidence=float(ext.get("confidence", 0.5)),
+                                module=ext.get("module", "general"),
+                            )
+
+                            config = ConfigManager()
+                            falkordb_config = config.get_falkordb_config()
+                            graph = GraphClient(falkordb_config)
+
+                            if graph.connect():
+                                if graph.add_decision(decision):
+                                    detector.mark_extracted(sig["id"], decision.decision_id)
+                                    extractor.save_decision(ext, decision.decision_id)
+                                    saved_count += 1
+                                graph.disconnect()
+
+                        except Exception as e:
+                            console.print(f"[yellow]Warning: Failed to save decision: {e}[/yellow]")
+
+                else:
+                    # No extraction, just show signal
+                    table.add_row(
+                        sig["id"][:12],
+                        sig["signal_type"],
+                        sig["text"][:40],
+                        sig["module"],
+                    )
+
+        else:
+            # Level 2: Rule-based only
+            for sig in pending:
+                decision_text = sig["text"][:40]
+
+                table.add_row(
+                    sig["id"][:12],
+                    sig["signal_type"],
+                    decision_text,
+                    sig["module"],
+                )
+
+                if not dry_run:
+                    detector.mark_extracted(sig["id"], f"dec_{sig['id'][:16]}")
+                    extracted_count += 1
 
         console.print(table)
 
         if dry_run:
             console.print(f"\n[dim]Dry run: would process {len(pending)} signals[/dim]")
             console.print(f"[dim]Run 'membria extractor run' without --dry-run to process[/dim]")
+            if level3:
+                console.print(f"[dim]Level 3 (Haiku) would extract {extracted_count} decisions[/dim]")
         else:
-            console.print(f"\n[bold green]✓[/bold green] Processed {extracted_count} signal(s)")
-            console.print(f"[dim]Note: Level 3 (Haiku extraction) not yet implemented[/dim]")
+            if level3:
+                console.print(f"\n[bold green]✓[/bold green] Processed {extracted_count} signal(s)")
+                console.print(f"[bold green]✓[/bold green] Saved {saved_count} decision(s) to graph")
+            else:
+                console.print(f"\n[bold green]✓[/bold green] Processed {extracted_count} signal(s)")
+                console.print(f"[dim]Use --level3 flag for Haiku structured extraction[/dim]")
 
     except Exception as e:
         console.print(f"[bold red]✗[/bold red] Error: {e}")
