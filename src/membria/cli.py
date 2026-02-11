@@ -5,7 +5,7 @@ from rich.console import Console
 from typing import Optional
 
 from membria import __version__
-from membria.commands import daemon_app, config_app, decisions_app, engrams_app
+from membria.commands import daemon_app, config_app, decisions_app, engrams_app, stats_app, calibration_app
 
 app = typer.Typer(
     name="membria",
@@ -19,6 +19,8 @@ app.add_typer(daemon_app, name="daemon")
 app.add_typer(config_app, name="config")
 app.add_typer(decisions_app, name="decisions")
 app.add_typer(engrams_app, name="engrams")
+app.add_typer(stats_app, name="stats")
+app.add_typer(calibration_app, name="calibration")
 
 
 def version_callback(value: bool) -> None:
