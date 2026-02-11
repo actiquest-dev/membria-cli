@@ -56,9 +56,9 @@ class GraphClient:
 
     def disconnect(self) -> None:
         """Disconnect from FalkorDB."""
-        if self.db_instance:
-            self.db_instance.close()
-            self.connected = False
+        self.db_instance = None
+        self.graph = None
+        self.connected = False
 
     def health_check(self) -> Dict[str, Any]:
         """Check graph health and connectivity."""

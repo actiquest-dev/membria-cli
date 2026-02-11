@@ -14,7 +14,7 @@
 | Component | Status | Details |
 |-----------|--------|---------|
 | **Redis** | ✅ Running | Version 7.4.7, Port 6379 |
-| **FalkorDB Module** | ⏳ Pending | Module available, requires compatibility fix |
+| **FalkorDB Module** | ✅ Loaded | v4.16.3 (glibc x64), graph operations working |
 | **Firewall** | ✅ Open | Port 6379 allows remote connections |
 | **Auth** | ✅ Disabled | No password (nopass) for development |
 | **Protected Mode** | ✅ Off | Allows external connections |
@@ -108,45 +108,55 @@ membria --version                # ✅ Returns v0.1.0
 
 ```python
 >>> from membria.graph import GraphClient
->>> client = GraphClient()
->>> client.connect()
-True
+>>> graph = GraphClient()
+>>> graph.connect()
+✓ Connected to FalkorDB (192.168.0.105:6379)
 
->>> client.health_check()
+>>> graph.health_check()
 {
-  "status": "error",
-  "error": "unknown command 'GRAPH.QUERY'",
+  "status": "healthy",
   "host": "192.168.0.105",
   "port": 6379,
-  "mode": "remote"
+  "mode": "remote",
+  "connected": True
 }
-# ✅ Network connection works
-# ⏳ FalkorDB module needs to be loaded
+
+>>> graph.get_decisions()
+✓ Retrieved 3 result(s) from graph
+
+>>> graph.disconnect()
+✓ Disconnected
 ```
+
+**Test Status:** ✅ All graph operations working
+- ✅ Connection established
+- ✅ Health check passing
+- ✅ Graph queries (GRAPH.QUERY) working
+- ✅ Decision storage working
+- ✅ Remote access from Mac confirmed
 
 ---
 
-## 5. Known Issues & Workarounds
+## 5. FalkorDB Module Installation
 
-### Issue: FalkorDB Module Loading
+### ✅ RESOLVED: FalkorDB Module Loading
 
-**Status:** ⏳ Under Investigation
+**Issue:** Initial attempt with Alpine-compiled binary failed
+**Root Cause:** Alpine produces musl libc binaries; Ubuntu 24.04 requires glibc
+**Solution:** Downloaded and installed glibc-compatible FalkorDB v4.16.3 x64 binary
 
-**Symptoms:**
-- Redis starts successfully when `loadmodule` is commented out
-- Redis fails to start when `loadmodule /var/lib/redis/modules/falkordb.so` is enabled
-- Likely cause: Module version incompatibility with Redis 7.4.7
+**Resolution Details:**
+1. Downloaded wrong binary: `falkordb-alpine-x64.so` → incompatible with Ubuntu
+2. Found correct binary: `falkordb-x64.so` (generic glibc version)
+3. Replaced binary and restarted Redis
+4. Verified module loads: `MODULE LIST` shows graph v4.16.3
+5. Tested graph operations: GRAPH.QUERY, GRAPH.LIST all working
 
-**Workaround:** Using Redis as base storage layer for Phase 1
-- Store Engrams as JSON (in Redis/SQLite)
-- Store Decisions in Redis (key-value)
-- Upgrade to FalkorDB graph queries in Phase 2
-
-**Resolution Path:**
-1. Verify FalkorDB module is compatible with Redis 7.4.7
-2. Recompile module if needed
-3. Or downgrade Redis to proven compatible version
-4. Document final working configuration
+**Final Configuration:**
+- Module path: `/var/lib/redis/modules/falkordb.so`
+- Owner: `redis:redis`, Permissions: `755`
+- Redis config: `loadmodule /var/lib/redis/modules/falkordb.so` enabled
+- Status: ✅ Production ready
 
 ---
 
@@ -206,7 +216,8 @@ membria-cli/
 - [x] Models and data structures defined
 - [x] Daemon scaffolding ready
 - [x] MCP server interface defined
-- [ ] FalkorDB module loading resolved
+- [x] FalkorDB module loading resolved (v4.16.3 glibc binary)
+- [x] Graph operations tested and working
 - [ ] Git hook integration
 - [ ] CLI command implementations completed
 - [ ] Full integration tests passing
