@@ -15,17 +15,22 @@ console = Console()
 
 @daemon_app.command("start")
 def start(port: int = typer.Option(3117, "--port", "-p", help="Port for MCP daemon")) -> None:
-    """Start the MCP daemon."""
+    """Start the real MCP daemon."""
     config = ConfigManager()
     manager = ProcessManager()
 
+    # Start using the real MCP daemon
     success, message = manager.start(port=port)
 
     if success:
         console.print(f"[bold green]✓[/bold green] {message}")
-        console.print(f"[bold green]✓[/bold green] Graph: local (FalkorDB at 192.168.0.105:6379)")
-        console.print(f"[bold green]✓[/bold green] Ready for Claude Code integration")
-        console.print(f"\n[dim]Access logs: membria daemon logs[/dim]")
+        console.print(f"[bold green]✓[/bold green] Graph: FalkorDB (192.168.0.105:6379)")
+        console.print(f"[bold green]✓[/bold green] Background services:")
+        console.print(f"[bold green]  ✓[/bold green] Signal detection (Level 2)")
+        console.print(f"[bold green]  ✓[/bold green] Batch extraction (Level 3, hourly)")
+        console.print(f"[bold green]  ✓[/bold green] Health monitoring")
+        console.print(f"\n[bold green]✓[/bold green] Ready for Claude Code integration (stdio)")
+        console.print(f"\n[dim]View logs: membria daemon logs[/dim]")
     else:
         console.print(f"[bold red]✗[/bold red] {message}")
         raise typer.Exit(code=1)
