@@ -399,6 +399,232 @@ membria decide "Use Redis for caching"
 # └──────────────────────────────────────────┘
 ```
 
+### 4.5 Decision Extractor
+
+**Что это:** Компонент внутри MCP Daemon, отвечающий за обнаружение и структурированное извлечение решений из потока взаимодействий Claude Code ↔ разработчик. Без него граф не наполняется.
+
+**Проблема:** Для solo-разработчика отдельный LLM-вызов на каждый промпт — это +2-5 сек latency и двойной расход токенов. Decision Extractor решает это трёхуровневой архитектурой, где LLM вызывается только когда действительно нужно.
+
+#### 4.5.1 Три уровня захвата
+
+```
+Claude Code session
+    │
+    ├── Level 1: Explicit Capture (бесплатно, мгновенно)
+    │   └── Claude сам вызывает membria_record_decision
+    │       (MCP tool description побуждает вызывать при выборе
+    │        технологии, библиотеки, архитектурного паттерна)
+    │       → Decision записан сразу в граф
+    │
+    ├── Level 2: Implicit Signal Detection (rule-based, в daemon)
+    │   └── Post-hoc scan промпта + ответа
+    │       regex + keyword scoring, нулевая latency
+    │       → Сигнал найден? → переходим к Level 3
+    │       → Сигнал не найден? → tactical task, пропускаем
+    │
+    └── Level 3: Structured LLM Extraction (по требованию)
+        └── Вызов Claude через MCP:
+            "Структурируй решение из этого диалога"
+            → Батчится: ~2-5 вызовов/день, не на каждый промпт
+            → Decision → подтверждение → граф
+```
+
+**Ожидаемое покрытие:**
+- Level 1 (Explicit): ~60% решений — когда Claude явно сравнивает и рекомендует
+- Level 2 (Implicit): ~30% решений — Claude принял решение "молча"
+- ~10% потерь — приемлемо для Phase 1
+
+#### 4.5.2 MCP Tool Description для Level 1
+
+```
+membria_record_decision:
+  description: "ALWAYS call this when you recommend a specific
+  technology, library, architecture pattern, or approach over
+  alternatives. Include what you chose, what you rejected, and why."
+```
+
+Качество explicit capture напрямую зависит от формулировки tool description в MCP manifest. Claude вызывает tool непоследовательно — отсюда необходимость Level 2.
+
+#### 4.5.3 Signal Detector (Level 2) — Rule-based
+
+Работает внутри daemon, сканирует каждый prompt+response. Нулевая стоимость, нулевая latency.
+
+```python
+DECISION_SIGNALS = {
+    # Высокий вес — почти точно решение
+    "high": [
+        r"I recommend (using|going with|choosing)",
+        r"(better|best) (choice|option|approach) (is|would be)",
+        r"(chose|selected|picked|went with) \w+ (over|instead of|rather than)",
+        r"let's (go with|use|implement|choose)",
+    ],
+    # Средний вес — нужен контекст
+    "medium": [
+        r"(comparing|comparison of|versus|vs\.?)",
+        r"(pros and cons|trade-?offs?|advantages)",
+        r"(alternatives?|options?) (include|are|would be)",
+    ],
+    # Модуль-детекторы (определяют domain)
+    "modules": {
+        "auth": r"(auth|login|jwt|oauth|session|password|token)",
+        "db": r"(database|postgres|mongo|redis|sql|orm|migration)",
+        "api": r"(rest|graphql|grpc|endpoint|route|middleware)",
+        "infra": r"(docker|kubernetes|deploy|ci.?cd|terraform)",
+    }
+}
+```
+
+**Scoring:** `high` match → signal confirmed. 2+ `medium` matches → signal confirmed. Единичный `medium` → skip.
+
+#### 4.5.4 Structured Extraction (Level 3) — LLM
+
+Вызывается **только** для подтверждённых сигналов из Level 2. Использует **Haiku** (не Sonnet) — задача структурированная (extract JSON), Haiku справляется не хуже, стоит в 10× меньше (см. раздел 10 Token Economy).
+
+```
+Extraction prompt template:
+"Given this exchange between developer and AI assistant,
+extract the architectural/technical decision:
+- decision_statement: what was chosen
+- alternatives: what was considered and rejected
+- confidence: 0.0-1.0
+- reasoning: why this choice
+- module: domain (auth/db/api/infra/other)
+Return JSON only."
+```
+
+**Оптимизации для Solo:**
+- Батчинг: pending signals собираются и извлекаются одним вызовом раз в час
+- Дедупликация: если Claude уже вызвал `membria_record_decision` (Level 1), Level 3 не запускается для того же диалога
+- Кэширование: одинаковые паттерны (один framework упоминается 5 раз) группируются
+
+#### 4.5.5 Confirmation Flow
+
+```
+Signal detected → Extraction → Terminal notification:
+
+📌 Decision detected:
+   "Use JWT for authentication" (confidence: 0.85)
+   Alternatives: sessions, OAuth tokens
+   Module: auth
+   [✓ Save] [✗ Skip] [✎ Edit]
+```
+
+Настраивается через `config.toml`:
+```toml
+[extraction]
+require_confirmation = true    # true: ждёт подтверждения, false: auto-save
+batch_interval = "1h"          # интервал батчинга Level 3
+sensitivity = "medium"         # low | medium | high (порог для Level 2)
+```
+
+#### 4.5.6 Роль Monty в Decision Extractor
+
+Monty используется не для самого extraction (это задача LLM), а для **расширяемости** Signal Detector:
+
+```
+~/.membria/extractors/
+├── custom_signals.py    # Пользовательские паттерны
+├── scoring.py           # Кастомная логика scoring
+└── module_rules.py      # Свои module-детекторы
+```
+
+Пример пользовательского extractor:
+```python
+# ~/.membria/extractors/custom_signals.py
+# Исполняется в Monty sandbox — безопасно, за микросекунды
+
+def detect(prompt: str, response: str) -> list[dict]:
+    signals = []
+    # Специфичные для проекта паттерны
+    if "payment" in response and ("stripe" in response or "paypal" in response):
+        signals.append({
+            "weight": "high",
+            "module": "payments",
+            "reason": "Payment provider choice detected"
+        })
+    return signals
+```
+
+Monty исполняет эти скрипты без контейнеров, без latency, с полной изоляцией. Это основа для будущей plugin system (Phase 2+).
+
+#### 4.5.7 Архитектурная схема
+
+```
+┌─────────────────────────────────────────────────┐
+│                 MCP Server (daemon)              │
+│                                                  │
+│  Claude Code ←→ MCP Tools                        │
+│       │                                          │
+│  ┌─────────────────────────────────────────┐     │
+│  │         Decision Capture Layer          │     │
+│  │                                         │     │
+│  │  Level 1: Explicit                      │     │
+│  │    membria_record_decision tool call     │     │
+│  │            ↓ stored immediately         │     │
+│  │                                         │     │
+│  │  Level 2: Implicit Signal Detector      │     │
+│  │    Rule-based (Python core + Monty      │     │
+│  │    plugins for custom patterns)         │     │
+│  │            ↓ signal found               │     │
+│  │                                         │     │
+│  │  Level 3: Structured LLM Extraction     │     │
+│  │    Batched, async, same Claude API      │     │
+│  │            ↓                            │     │
+│  │                                         │     │
+│  │  Confirmation (optional):               │     │
+│  │    Terminal: [✓ Save] [✗ Skip] [✎ Edit] │     │
+│  └─────────────────────────────────────────┘     │
+│              ↓                                    │
+│  FalkorDB Graph (in-memory, local)               │
+└─────────────────────────────────────────────────┘
+```
+
+#### 4.5.8 CLI-команды Decision Extractor
+
+```bash
+# Статус и мониторинг
+membria extractor status               # Pending signals, extraction queue, last run
+membria extractor log                  # История: что было обнаружено и извлечено
+membria extractor log --pending        # Сигналы, ожидающие extraction
+
+# Ручной запуск
+membria extractor run                  # Запустить extraction для pending signals сейчас
+membria extractor run --dry-run        # Показать что будет извлечено, без записи
+
+# Тестирование паттернов
+membria extractor test "I recommend using Fastify over Express for this"
+# → Signal: HIGH (explicit recommendation)
+# → Module: api
+# → Would extract: "Use Fastify over Express"
+
+# Управление custom extractors
+membria extractor plugins list         # Список кастомных extractors
+membria extractor plugins validate     # Проверить синтаксис (Monty dry-run)
+```
+
+#### 4.5.9 Конфигурация
+
+```toml
+[extraction]
+enabled = true
+require_confirmation = true       # Требовать подтверждение перед записью в граф
+batch_interval = "1h"             # Интервал батчинга Level 3 extraction
+sensitivity = "medium"            # low | medium | high
+
+[extraction.signals]
+# Дополнительные high-weight паттерны
+custom_high = [
+    "we should (use|adopt|switch to)",
+    "the winner is",
+]
+# Дополнительные module-детекторы
+custom_modules = { payments = "(stripe|paypal|braintree)", ml = "(tensorflow|pytorch|model)" }
+
+[extraction.plugins]
+enabled = true
+path = "~/.membria/extractors/"   # Путь к Monty-плагинам
+```
+
 ---
 
 ## 5. Файловая структура
@@ -419,6 +645,8 @@ membria decide "Use Redis for caching"
 ├── engrams/
 │   ├── pending/             # Чекпойнты, ожидающие коммита
 │   └── index.db             # SQLite-индекс чекпойнтов для быстрого поиска
+├── extractors/
+│   └── custom_signals.py    # Пользовательские Monty-плагины для Signal Detector
 ├── daemon/
 │   ├── membria.pid          # PID файл демона
 │   ├── membria.sock         # Unix socket для IPC
@@ -819,16 +1047,15 @@ membria engrams rewind <engram-id>  # Восстановить файлы + ко
 
 ### 9.6 Интеграция с Reasoning Graph
 
-Чекпойнты — **входной канал** для Reasoning Graph. Pipeline извлечения:
+Engrams — **входной канал** для Reasoning Graph. Извлечение решений из engrams выполняется **Decision Extractor** (см. раздел 4.5):
 
 ```
 Engram transcript
     │
-    ├── 1. Signal Extraction (lightweight LLM call)
-    │   ├── Decision signals: "choose", "decide", alternatives mentioned
-    │   ├── Assumption signals: "this should work because..."
-    │   ├── Negative knowledge: "I tried X but it didn't work"
-    │   └── Confidence signals: "definitely", "probably", "not sure"
+    ├── 1. Decision Extractor (раздел 4.5)
+    │   ├── Level 1: Explicit capture (membria_record_decision)
+    │   ├── Level 2: Rule-based Signal Detection
+    │   └── Level 3: Structured LLM Extraction (batched)
     │
     ├── 2. DECISION_CANDIDATE creation
     │   ├── Statement: extracted decision
@@ -837,7 +1064,7 @@ Engram transcript
     │   ├── Context: immutable engram reference
     │   └── Source: engram_id + commit_sha
     │
-    ├── 3. Outcome Linking (async)
+    ├── 3. Outcome Linking (async, Phase 2+)
     │   ├── PR merge → decision EXECUTED
     │   ├── CI fail → NEGATIVE signal
     │   ├── Revert commit → FAILURE
@@ -982,9 +1209,97 @@ $ membria daemon start
 
 ---
 
-## 10. Нефункциональные требования
+## 10. Token Economy
 
-### 10.1 Performance
+### 10.1 Проблема
+
+Solo-разработчик с Claude Code тратит ~$30-60/мес на токены. Membria не должна удваивать этот расход. Цель: **overhead < 5%** от основного потребления.
+
+### 10.2 Источники потребления и оптимизации
+
+```
+Компонент               Наивный подход      Оптимизированный      Экономия
+─────────────────────── ─────────────────── ───────────────────── ─────────
+Context Injection        30K ток/день        8K ток/день           -73%
+  (compact payload,      (2K × 15 запр.)     (500 × 15 запр.,
+   conditional inject)                        skip если граф пуст)
+
+Extractor Level 3        3.5K ток/день       2K ток/день           -43%
+  (Haiku вместо Sonnet)  (Sonnet, 5 вызов.)  (Haiku, 5 вызов.)
+
+Engram summaries         25K ток/день        4K ток/день           -84%
+  (batch daily)          (2.5K × 10 коммит.)  (1 batch/день)
+
+─────────────────────── ─────────────────── ───────────────────── ─────────
+ИТОГО                    58K ток/день        14K ток/день
+                         ~$5.4/мес           ~$1.3/мес             -76%
+```
+
+### 10.3 Ключевые принципы
+
+1. **Level 1 (Explicit) бесплатен** — Claude вызывает `membria_record_decision` в рамках обычной сессии, дополнительных токенов нет
+2. **Level 2 (Rule-based) бесплатен** — regex + keyword scoring в daemon, нулевая стоимость
+3. **Level 3 использует Haiku** — структурированная задача (extract JSON из текста), Haiku справляется не хуже Sonnet, стоит в 10× меньше
+4. **Context injection — compact mode** — вместо полных текстов decisions передаём one-liners + IDs (~500 токенов vs ~2K)
+5. **Conditional injection** — если граф пуст или Task Router классифицировал задачу как tactical → context не инжектируется
+6. **Engram summaries — batch daily** — не на каждый коммит, а один раз в конце дня для всех engrams
+
+### 10.4 Конфигурация
+
+```toml
+[token_budget]
+daily_limit = 50000                  # Hard cap: daemon прекращает LLM-вызовы при достижении
+warning_threshold = 0.8              # Предупреждение при 80% бюджета
+extraction_model = "haiku"           # haiku | sonnet (Haiku для structured extraction)
+context_payload_max_tokens = 500     # Compact mode для context injection
+engram_summary = "batch-daily"       # per-commit | batch-daily | on-demand | disabled
+skip_context_when_empty = true       # Не инжектировать контекст если граф пуст
+```
+
+### 10.5 Мониторинг
+
+```bash
+$ membria stats --tokens
+Today: 12.4K tokens used (of 50K budget)
+├── Context injection: 6.2K (8 decision queries)
+├── Extraction L3:     1.8K (3 decisions, Haiku)
+└── Engram summaries:  4.4K (1 daily batch)
+
+Month: 287K tokens (~$2.10)
+Budget remaining: 78%
+
+$ membria stats --tokens --period 30d --format json
+{
+  "total_tokens": 287000,
+  "estimated_cost_usd": 2.10,
+  "breakdown": {
+    "context_injection": 180000,
+    "extraction": 52000,
+    "summaries": 55000
+  },
+  "decisions_captured": 47,
+  "cost_per_decision": 0.045
+}
+```
+
+### 10.6 Поведение при исчерпании бюджета
+
+```
+Budget > 80%: ⚠ Warning в CLI при каждой команде
+Budget = 100%:
+  ├── Level 3 extraction → остановлен (signals копятся в pending)
+  ├── Engram summaries → отложены
+  ├── Context injection → продолжает работать (critical path)
+  └── Level 1 + Level 2 → продолжают работать (бесплатны)
+
+Следующий день → бюджет сброшен, pending signals обработаны
+```
+
+---
+
+## 11. Нефункциональные требования
+
+### 11.1 Performance
 
 | Метрика | Требование | Обоснование |
 |---|---|---|
@@ -993,7 +1308,7 @@ $ membria daemon start
 | Cache sync | Background, не блокирует работу | Offline resilience |
 | Memory footprint daemon | < 100MB RSS | Не мешает IDE и другим инструментам |
 
-### 10.2 Security
+### 11.2 Security
 
 - Токены хранятся encrypted в `~/.membria/auth/`
 - Daemon слушает **только localhost** (127.0.0.1)
@@ -1001,14 +1316,14 @@ $ membria daemon start
 - Никаких credentials в логах
 - Enterprise: SSO session refresh без re-login
 
-### 10.3 Reliability
+### 11.3 Reliability
 
 - Daemon: auto-restart при crash (через systemd/launchd)
 - Graph connection: retry с exponential backoff
 - Cache: corruption detection + auto-rebuild
 - Migration: всегда backup перед изменением
 
-### 10.4 Compatibility
+### 11.4 Compatibility
 
 | Платформа | Поддержка |
 |---|---|
@@ -1025,7 +1340,7 @@ $ membria daemon start
 
 ---
 
-## 11. Метрики успеха
+## 12. Метрики успеха
 
 Из `coding-superagent.mdx` — метрики, значимые для разработчика (не $, а время/поломки):
 
@@ -1039,7 +1354,7 @@ $ membria daemon start
 
 ---
 
-## 12. Фазы разработки
+## 13. Фазы разработки
 
 ### Phase 1: Core (MVP)
 
@@ -1048,9 +1363,14 @@ $ membria daemon start
 Что входит:
 - `membria init`, `daemon start/stop/status`, `config`
 - MCP Server с базовым context injection
-- Local SQLite graph
+- FalkorDB embedded (in-memory, local)
 - Task Router (keyword-based classification)
+- **Decision Extractor** (Level 1: explicit + Level 2: rule-based + Level 3: batched LLM)
+- Monty runtime для custom extractor plugins
+- Engrams с полной структурой данных
 - `membria decisions list/show/record`
+- `membria extractor status/log/run/test`
+- `membria engrams list/show/search/save`
 - `membria doctor`
 - `membria setup claude-code`
 
@@ -1100,7 +1420,7 @@ $ membria daemon start
 
 ---
 
-## 13. Открытые вопросы
+## 14. Открытые вопросы
 
 1. **Язык реализации:** ✅ **РЕШЕНО: Python**
    - **Обоснование:** 
@@ -1125,7 +1445,7 @@ $ membria daemon start
 
 ---
 
-## 14. Зависимости и пререквизиты
+## 15. Зависимости и пререквизиты
 
 | Зависимость | Для чего | Обязательность |
 |---|---|---|
