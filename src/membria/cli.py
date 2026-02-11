@@ -13,6 +13,7 @@ from membria.commands import (
     stats_app,
     calibration_app,
     extractor_app,
+    safety_app,
 )
 
 app = typer.Typer(
@@ -30,6 +31,7 @@ app.add_typer(engrams_app, name="engrams")
 app.add_typer(stats_app, name="stats")
 app.add_typer(calibration_app, name="calibration")
 app.add_typer(extractor_app, name="extractor")
+app.add_typer(safety_app, name="safety")
 
 
 def version_callback(value: bool) -> None:

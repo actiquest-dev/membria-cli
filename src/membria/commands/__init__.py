@@ -7,6 +7,7 @@ from membria.commands.engrams import engrams_app
 from membria.commands.stats import stats_app
 from membria.commands.calibration import calibration_app
 from membria.commands.extractor import extractor_app
+from membria.commands.safety import safety_app
 
 __all__ = [
     "daemon_app",
@@ -16,4 +17,5 @@ __all__ = [
     "stats_app",
     "calibration_app",
     "extractor_app",
+    "safety_app",
 ]
