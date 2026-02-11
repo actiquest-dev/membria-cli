@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict
 
 from membria.daemon import MembriaDaemon
+from membria.session_capturer import get_capturer
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class MembriaMCPServer:
     def __init__(self):
         """Initialize MCP server."""
         self.daemon = MembriaDaemon()
+        self.capturer = get_capturer()  # Auto-capture decisions
         self.running = False
 
     def start(self) -> bool:
@@ -153,6 +155,18 @@ class MembriaMCPServer:
         except Exception as e:
             logger.error(f"Failed to get calibration: {e}")
             return {"error": str(e)}
+
+    def capture_session(self, prompt: str, response: str) -> Dict[str, Any]:
+        """
+        Capture a Claude Code session for auto-decision detection.
+
+        Called after Claude generates code. Runs Signal Detector (Level 2)
+        to find decision signals without LLM cost.
+        """
+        result = self.capturer.capture_session(prompt, response)
+        if result["signals_detected"] > 0:
+            logger.info(f"Auto-captured {result['signals_detected']} decision signal(s)")
+        return result
 
     def handle_tool_call(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Universal tool call handler for MCP protocol."""
