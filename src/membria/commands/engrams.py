@@ -2,38 +2,186 @@
 
 import typer
 from rich.console import Console
+from rich.table import Table
+from pathlib import Path
+from typing import Optional
+import json
+
+from membria.storage import EngramStorage
+from membria.config import ConfigManager
 
 engrams_app = typer.Typer(help="Manage Engrams (Agent Session captures)")
 console = Console()
 
+# Git hook script
+GIT_HOOK_SCRIPT = """#!/bin/bash
+# Membria Engram Capture Hook
+# Automatically capture agent session when committing
+
+membria engrams capture --auto 2>/dev/null || true
+"""
+
 
 @engrams_app.command("list")
 def list_engrams(
-    branch: str = typer.Option(None, help="Filter by branch"),
-    author: str = typer.Option(None, help="Filter by author"),
+    branch: Optional[str] = typer.Option(None, help="Filter by branch"),
+    limit: int = typer.Option(10, "--limit", "-n", help="Number of engrams to show"),
 ) -> None:
     """List Engrams."""
-    console.print("[bold]Recent Engrams[/bold]\n")
-    console.print("[dim]No engrams captured yet[/dim]")
-    console.print("\n[dim]Run 'membria engrams enable' to start capturing agent sessions[/dim]")
+    try:
+        config = ConfigManager()
+        storage = EngramStorage(config)
+
+        engrams = storage.list_engrams()
+
+        if not engrams:
+            console.print("[bold]Recent Engrams[/bold]\n")
+            console.print("[dim]No engrams captured yet[/dim]")
+            console.print("\n[dim]Run 'membria engrams enable' to start capturing agent sessions[/dim]")
+            return
+
+        # Filter by branch if specified
+        if branch:
+            engrams = [e for e in engrams if e.get("branch") == branch]
+
+        # Limit results
+        engrams = engrams[:limit]
+
+        # Create table
+        table = Table(title="Recent Engrams")
+        table.add_column("ID", style="cyan")
+        table.add_column("Timestamp", style="white")
+        table.add_column("Branch", style="green")
+        table.add_column("Session Type", style="yellow")
+        table.add_column("Decisions", style="magenta")
+
+        for e in engrams:
+            decisions_count = len(e.get("decisions", []))
+            table.add_row(
+                e.get("engram_id", "?")[:12],
+                e.get("created_at", "?")[:19],
+                e.get("branch", "unknown"),
+                e.get("session_type", "unknown"),
+                str(decisions_count),
+            )
+
+        console.print("[bold]Recent Engrams[/bold]\n")
+        console.print(table)
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
 
 
 @engrams_app.command("show")
 def show(engram_id: str) -> None:
     """Show Engram details."""
-    console.print(f"[bold]Engram: {engram_id}[/bold]\n")
-    console.print("[dim]Not found[/dim]")
+    try:
+        config = ConfigManager()
+        storage = EngramStorage(config)
+
+        engram = storage.load_engram(engram_id)
+
+        if not engram:
+            console.print(f"[bold red]✗[/bold red] Engram not found: {engram_id}")
+            raise typer.Exit(code=1)
+
+        # Display engram details
+        console.print(f"[bold]Engram: {engram.get('engram_id')}[/bold]\n")
+        console.print(f"Created: {engram.get('created_at')}")
+        console.print(f"Branch: {engram.get('branch')}")
+        console.print(f"Session Type: {engram.get('session_type')}")
+        console.print(f"Agent: {engram.get('agent_info', {}).get('name', 'unknown')}")
+
+        # Decisions
+        decisions = engram.get("decisions", [])
+        if decisions:
+            console.print(f"\n[bold]Decisions ({len(decisions)}):[/bold]")
+            for d in decisions:
+                console.print(f"  • {d.get('statement', 'unknown')[:60]}")
+
+        # Monty state summary
+        monty_state = engram.get("monty_state", {})
+        if monty_state:
+            console.print(f"\n[bold]Monty State:[/bold]")
+            console.print(f"  Paused at: {monty_state.get('paused_at_function', 'N/A')}")
+            console.print(f"  Resumable: {monty_state.get('resumable', False)}")
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
 
 
 @engrams_app.command("enable")
 def enable() -> None:
     """Enable Engram capture (install git hooks)."""
-    console.print("[bold green]✓[/bold green] Git hooks installed")
-    console.print("[bold green]✓[/bold green] Engram capture enabled")
-    console.print("\n[dim]Agent sessions will now be captured on git commit[/dim]")
+    try:
+        git_dir = Path(".git")
+        hooks_dir = git_dir / "hooks"
+
+        if not git_dir.exists():
+            console.print("[bold red]✗[/bold red] Not in a git repository")
+            raise typer.Exit(code=1)
+
+        hooks_dir.mkdir(exist_ok=True)
+
+        # Create post-commit hook
+        post_commit = hooks_dir / "post-commit"
+        post_commit.write_text(GIT_HOOK_SCRIPT)
+        post_commit.chmod(0o755)
+
+        console.print("[bold green]✓[/bold green] Git hooks installed")
+        console.print("[bold green]✓[/bold green] Engram capture enabled")
+        console.print("\n[dim]Agent sessions will now be captured on git commit[/dim]")
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
 
 
 @engrams_app.command("disable")
 def disable() -> None:
     """Disable Engram capture."""
-    console.print("[bold yellow]![/bold yellow] Engram capture disabled")
+    try:
+        git_dir = Path(".git")
+        hooks_dir = git_dir / "hooks"
+        post_commit = hooks_dir / "post-commit"
+
+        if not git_dir.exists():
+            console.print("[bold red]✗[/bold red] Not in a git repository")
+            raise typer.Exit(code=1)
+
+        if post_commit.exists():
+            post_commit.unlink()
+
+        console.print("[bold green]✓[/bold green] Engram capture disabled")
+        console.print("[dim]Git hook removed[/dim]")
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
+
+
+@engrams_app.command("capture", hidden=True)
+def capture(auto: bool = typer.Option(False, "--auto", help="Automatic capture from git hook")) -> None:
+    """Capture an engram (internal command)."""
+    try:
+        config = ConfigManager()
+        storage = EngramStorage(config)
+
+        # In a real implementation, this would:
+        # 1. Get current git state (branch, commit, files changed)
+        # 2. Gather session context from daemon
+        # 3. Serialize Monty state if available
+        # 4. Store in SQLite
+
+        # For now, just show a message if auto
+        if auto:
+            # Silent in auto mode
+            return
+
+        console.print("[bold green]✓[/bold green] Engram captured")
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)

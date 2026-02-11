@@ -15,9 +15,17 @@ logger = logging.getLogger(__name__)
 class EngramStorage:
     """Manages persistent storage of Engrams (session checkpoints)."""
 
-    def __init__(self, storage_dir: Optional[Path] = None):
+    def __init__(self, storage_dir = None):
         """Initialize engram storage."""
+        # Handle ConfigManager being passed instead of Path
+        if hasattr(storage_dir, 'config_file'):
+            # It's a ConfigManager, use default path
+            storage_dir = None
+
         self.storage_dir = storage_dir or (Path.home() / ".membria" / "engrams")
+        if not isinstance(self.storage_dir, Path):
+            self.storage_dir = Path(self.storage_dir)
+
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.pending_dir = self.storage_dir / "pending"
         self.pending_dir.mkdir(exist_ok=True)
@@ -96,8 +104,8 @@ class EngramStorage:
             logger.error(f"Failed to save engram: {e}")
             return False
 
-    def load_engram(self, engram_id: str) -> Optional[Engram]:
-        """Load an engram from storage."""
+    def load_engram(self, engram_id: str) -> Optional[Dict[str, Any]]:
+        """Load an engram from storage as a dictionary."""
         try:
             file_path = self.pending_dir / f"{engram_id}.json"
             if not file_path.exists():
@@ -106,7 +114,7 @@ class EngramStorage:
             with open(file_path) as f:
                 data = json.load(f)
 
-            return self._deserialize_engram(data)
+            return data
 
         except Exception as e:
             logger.error(f"Failed to load engram {engram_id}: {e}")
@@ -120,7 +128,7 @@ class EngramStorage:
 
             if branch:
                 query = """
-                    SELECT engram_id, session_id, commit_sha, branch, timestamp, intent
+                    SELECT engram_id, session_id, commit_sha, branch, timestamp, intent, created_at
                     FROM engrams
                     WHERE branch = ?
                     ORDER BY timestamp DESC
@@ -129,7 +137,7 @@ class EngramStorage:
                 cursor.execute(query, (branch, limit))
             else:
                 query = """
-                    SELECT engram_id, session_id, commit_sha, branch, timestamp, intent
+                    SELECT engram_id, session_id, commit_sha, branch, timestamp, intent, created_at
                     FROM engrams
                     ORDER BY timestamp DESC
                     LIMIT ?
@@ -147,6 +155,9 @@ class EngramStorage:
                     "branch": row[3],
                     "timestamp": row[4],
                     "intent": row[5],
+                    "created_at": row[6] if len(row) > 6 else row[4],
+                    "session_type": "ai-session",  # Default type
+                    "decisions": [],  # Empty by default, filled from full load
                 }
                 for row in rows
             ]
