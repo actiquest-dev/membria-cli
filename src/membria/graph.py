@@ -724,6 +724,57 @@ class GraphClient:
             logger.error("Not connected to graph")
             return {"docshots": [], "skills": [], "negative_knowledge": []}
 
+        try:
+            role_id = f"role_{role_name}"
+
+            # Fetch linked DocShots
+            docshots_query = """
+            MATCH (r:Role {id: $role_id, tenant_id: $tenant_id, team_id: $team_id})-[:ROLE_USES_DOCSHOT]->(ds:DocShot)
+            RETURN ds.id as id, ds.doc_count as doc_count, ds.created_at as created_at
+            LIMIT 10
+            """
+            docshots_result = self.graph.query(docshots_query, {
+                "role_id": role_id,
+                "tenant_id": self._namespace["tenant_id"],
+                "team_id": self._namespace["team_id"],
+            })
+            docshots = [dict(zip(["id", "doc_count", "created_at"], row)) for row in (docshots_result.result_set or [])]
+
+            # Fetch linked Skills
+            skills_query = """
+            MATCH (r:Role {id: $role_id, tenant_id: $tenant_id, team_id: $team_id})-[:ROLE_USES_SKILL]->(s:Skill)
+            RETURN s.id as id, s.name as name, s.procedure as procedure, s.quality_score as quality_score
+            LIMIT 10
+            """
+            skills_result = self.graph.query(skills_query, {
+                "role_id": role_id,
+                "tenant_id": self._namespace["tenant_id"],
+                "team_id": self._namespace["team_id"],
+            })
+            skills = [dict(zip(["id", "name", "procedure", "quality_score"], row)) for row in (skills_result.result_set or [])]
+
+            # Fetch linked NegativeKnowledge
+            nk_query = """
+            MATCH (r:Role {id: $role_id, tenant_id: $tenant_id, team_id: $team_id})-[:ROLE_USES_NK]->(nk:NegativeKnowledge)
+            RETURN nk.id as id, nk.hypothesis as hypothesis, nk.recommendation as recommendation, nk.is_active as is_active
+            LIMIT 10
+            """
+            nk_result = self.graph.query(nk_query, {
+                "role_id": role_id,
+                "tenant_id": self._namespace["tenant_id"],
+                "team_id": self._namespace["team_id"],
+            })
+            negative_knowledge = [dict(zip(["id", "hypothesis", "recommendation", "is_active"], row)) for row in (nk_result.result_set or [])]
+
+            return {
+                "docshots": docshots,
+                "skills": skills,
+                "negative_knowledge": negative_knowledge,
+            }
+        except Exception as e:
+            logger.error(f"Failed to get role links for {role_name}: {e}")
+            return {"docshots": [], "skills": [], "negative_knowledge": []}
+
     def unlink_role_docshot(self, role_name: str, doc_shot_id: str) -> bool:
         """Remove Role -> DocShot link."""
         if not self.connected:
@@ -1530,6 +1581,29 @@ class GraphClient:
         """Deactivate negative knowledge whose TTL has expired."""
         if not self.connected:
             logger.error("Not connected to graph")
+            return 0
+
+        try:
+            query = """
+            MATCH (nk:NegativeKnowledge)
+            WHERE (nk.is_active IS NULL OR nk.is_active = true)
+              AND nk.ttl_days IS NOT NULL
+              AND nk.last_verified_at IS NOT NULL
+              AND (nk.last_verified_at + nk.ttl_days * 86400) < $now
+            SET nk.is_active = false,
+                nk.deprecated_reason = "ttl_expired"
+            RETURN COUNT(nk) as count
+            """
+            result = self.graph.query(query, {"now": now_ts})
+            if result and result.result_set and len(result.result_set) > 0:
+                row = result.result_set[0]
+                if row and len(row) > 0:
+                    count = row[0]
+                    if count is not None:
+                        return int(count)
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to deactivate expired negative knowledge: {e}")
             return 0
 
     def deactivate_expired_outcomes(self, now_ts: int) -> int:

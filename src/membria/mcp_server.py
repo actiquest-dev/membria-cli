@@ -91,11 +91,16 @@ class MembriaToolHandler:
             if not task:
                 return {"error": {"code": -32602, "message": "task required"}}
 
+            # Sanitize inputs to prevent prompt injection
+            from membria.security import sanitize_text
+            safe_task = sanitize_text(task, max_len=1000)
+            safe_context = sanitize_text(context, max_len=2000)
+
             # Run orchestration in debate mode with red_team=True
             import asyncio
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            orchestration_task = f"AUDIT TASK: {task}\nCONTEXT: {context}"
+            orchestration_task = f"AUDIT TASK: {safe_task}\nCONTEXT: {safe_context}"
             response = loop.run_until_complete(self.executor.run_orchestration(orchestration_task, mode="debate", red_team=True))
             loop.close()
 

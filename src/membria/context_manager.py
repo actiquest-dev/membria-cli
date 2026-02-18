@@ -104,6 +104,47 @@ class ContextManager:
             "surface": surface,
         }
 
+    def _compact_sections(self, sections: List[ContextSection], max_tokens: int) -> Dict[str, Any]:
+        """Compacts context sections within token budget."""
+        if not sections:
+            return {"text": "", "tokens": 0, "truncated": False, "sections": []}
+
+        sections_sorted = sorted(sections, key=lambda s: s.priority)
+        output_lines: List[str] = ["# Decision Context (Unified)\n"]
+        tokens_used = len(output_lines[0]) // 4
+        included: List[Dict[str, Any]] = []
+        truncated = False
+
+        for section in sections_sorted:
+            if not section.content:
+                continue
+            section_tokens = section.tokens
+            if tokens_used + section_tokens <= max_tokens:
+                output_lines.append(section.content.strip() + "\n")
+                tokens_used += section_tokens
+                included.append({"name": section.name, "tokens": section_tokens})
+            else:
+                # Try partial fit
+                remaining = max_tokens - tokens_used
+                if remaining > 20:
+                    chars = remaining * 4
+                    snippet = section.content[:chars].rstrip()
+                    output_lines.append(snippet + "\n")
+                    tokens_used += len(snippet) // 4
+                    included.append({"name": section.name, "tokens": len(snippet) // 4})
+                truncated = True
+                break
+
+        if truncated:
+            output_lines.append("*[Context truncated to fit token budget]*\n")
+
+        return {
+            "text": "\n".join(output_lines).strip() + "\n",
+            "tokens": tokens_used,
+            "truncated": truncated,
+            "sections": included,
+        }
+
 
 def _docshot_section(doc_shot: Optional[Dict[str, Any]]) -> Optional[ContextSection]:
     if not doc_shot:
@@ -212,101 +253,3 @@ def _chains_section(include_chains: bool, orchestrator, module: str, statement: 
     except Exception as exc:
         logger.warning(f"Context chains failed: {exc}")
     return None
-
-    def build_plan_context(
-        self,
-        plan_context: Dict[str, Any],
-        max_tokens: int = 1500,
-        doc_shot: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Compact plan context into a unified bundle."""
-        sections: List[ContextSection] = []
-
-        if doc_shot:
-            doc_shot_id = doc_shot.get("doc_shot_id") or "docshot_unknown"
-            doc_count = doc_shot.get("count", 0)
-            content = (
-                "## DocShot (Provenance)\n"
-                f"- DocShot ID: {sanitize_text(str(doc_shot_id), max_len=80)}\n"
-                f"- Documents: {doc_count}\n"
-            )
-            sections.append(ContextSection("docshot", content, priority=0))
-
-        cal = plan_context.get("calibration") or {}
-        if cal:
-            content = (
-                "## Team Calibration\n"
-                f"- Success rate: {cal.get('success_rate', 0):.0%}\n"
-                f"- Confidence gap: {cal.get('confidence_gap', 0):+.0%}\n"
-                f"- Trend: {cal.get('trend', 'stable')}\n"
-            )
-            sections.append(ContextSection("calibration", content, priority=1))
-
-        failed = plan_context.get("failed_approaches") or []
-        if failed:
-            lines = ["## Failed Approaches (Avoid)"]
-            for f in failed[:5]:
-                lines.append(f"- {sanitize_text(f.get('approach', ''), max_len=140)}")
-            sections.append(ContextSection("failed", "\n".join(lines) + "\n", priority=2))
-
-        success = plan_context.get("successful_patterns") or []
-        if success:
-            lines = ["## Successful Patterns (Use)"]
-            for s in success[:5]:
-                lines.append(f"- {sanitize_text(s.get('pattern', ''), max_len=140)}")
-            sections.append(ContextSection("success", "\n".join(lines) + "\n", priority=3))
-
-        recs = plan_context.get("recommendations") or []
-        if recs:
-            lines = ["## Recommendations"]
-            for r in recs[:6]:
-                lines.append(f"- {sanitize_text(r, max_len=200)}")
-            sections.append(ContextSection("recommendations", "\n".join(lines) + "\n", priority=4))
-
-        compact = self._compact_sections(sections, max_tokens=max_tokens)
-        return {
-            "compact_context": compact["text"],
-            "total_tokens": compact["tokens"],
-            "truncated": compact["truncated"],
-            "sections_included": compact["sections"],
-        }
-
-    def _compact_sections(self, sections: List[ContextSection], max_tokens: int) -> Dict[str, Any]:
-        if not sections:
-            return {"text": "", "tokens": 0, "truncated": False, "sections": []}
-
-        sections_sorted = sorted(sections, key=lambda s: s.priority)
-        output_lines: List[str] = ["# Decision Context (Unified)\n"]
-        tokens_used = len(output_lines[0]) // 4
-        included: List[Dict[str, Any]] = []
-        truncated = False
-
-        for section in sections_sorted:
-            if not section.content:
-                continue
-            section_tokens = section.tokens
-            if tokens_used + section_tokens <= max_tokens:
-                output_lines.append(section.content.strip() + "\n")
-                tokens_used += section_tokens
-                included.append({"name": section.name, "tokens": section_tokens})
-            else:
-                # Try partial fit
-                remaining = max_tokens - tokens_used
-                if remaining > 20:
-                    chars = remaining * 4
-                    snippet = section.content[:chars].rstrip()
-                    output_lines.append(snippet + "\n")
-                    tokens_used += len(snippet) // 4
-                    included.append({"name": section.name, "tokens": len(snippet) // 4})
-                truncated = True
-                break
-
-        if truncated:
-            output_lines.append("*[Context truncated to fit token budget]*\n")
-
-        return {
-            "text": "\n".join(output_lines).strip() + "\n",
-            "tokens": tokens_used,
-            "truncated": truncated,
-            "sections": included,
-        }

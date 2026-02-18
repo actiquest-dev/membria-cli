@@ -219,6 +219,13 @@ class NegativeKnowledge:
     blocks_pattern: Optional[str] = None
     recommendation: str = ""
     source: str = "analysis"
+    # Memory lifecycle fields
+    memory_type: Optional[str] = None  # "rule", "antipattern", "constraint", etc.
+    memory_subject: Optional[str] = None  # domain or subsystem affected
+    ttl_days: Optional[int] = None  # Time-to-live in days (None = permanent)
+    last_verified_at: Optional[datetime] = None  # When this NK was last confirmed
+    is_active: bool = True  # Whether this NK is still applicable
+    deprecated_reason: Optional[str] = None  # Why it was deactivated
 
 
 @dataclass
@@ -259,6 +266,8 @@ class Role:
     role_id: str
     name: str
     description: Optional[str] = None
+    prompt_path: Optional[str] = None  # Path to system prompt markdown file
+    context_policy: Optional[dict] = None  # Dict of context configuration: {include_docshots, include_skills, include_nk, ...}
 
 
 @dataclass

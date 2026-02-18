@@ -37,6 +37,11 @@ class MCPDaemonServer:
             self.memory_manager = MemoryManager(self.graph)
         except Exception:
             self.memory_manager = None
+        try:
+            from membria.calibration_updater import CalibrationUpdater
+            self.calibration_updater = CalibrationUpdater(self.graph)
+        except Exception:
+            self.calibration_updater = None
         self.memory_tools_enabled = bool(
             getattr(self.config.config, "memory_tools", None)
             and self.config.config.memory_tools.enabled
@@ -1128,15 +1133,51 @@ class MCPDaemonServer:
         self, request_id: Optional[str], params: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Tool: Get calibration metrics."""
-        return {
-            "type": "tool_result",
-            "id": request_id,
-            "result": {
-                "calibrated": True,
-                "overconfidence_gap": 0.05,
-                "sample_size": 10,
-            },
-        }
+        try:
+            if not self.calibration_updater:
+                return {
+                    "type": "tool_result",
+                    "id": request_id,
+                    "result": {
+                        "error": "Calibration updater not available",
+                        "calibrated": False,
+                    },
+                }
+
+            # Fetch team calibration from graph
+            domain = params.get("domain", "general")
+            team_cal = self.calibration_updater.get_team_calibration(domain)
+
+            if not team_cal:
+                return {
+                    "type": "tool_result",
+                    "id": request_id,
+                    "result": {
+                        "calibrated": False,
+                        "message": f"No calibration data for domain: {domain}",
+                    },
+                }
+
+            return {
+                "type": "tool_result",
+                "id": request_id,
+                "result": {
+                    "calibrated": True,
+                    "domain": domain,
+                    "success_rate": team_cal.get("success_rate", 0.0),
+                    "confidence_avg": team_cal.get("confidence_avg", 0.0),
+                    "overconfidence_gap": team_cal.get("overconfidence", 0.0),
+                    "sample_size": team_cal.get("sample_size", 0),
+                    "trend": team_cal.get("trend", "unknown"),
+                },
+            }
+        except Exception as e:
+            logger.error(f"Failed to get calibration: {e}")
+            return {
+                "type": "error",
+                "id": request_id,
+                "error": f"Calibration error: {str(e)}",
+            }
 
     def _tool_memory_store(
         self, request_id: Optional[str], params: Dict[str, Any]
