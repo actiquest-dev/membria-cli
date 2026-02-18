@@ -404,6 +404,19 @@ Current README.md sections that need updates:
 
 ---
 
+## 📖 RELATED DOCUMENTATION
+
+**Archive specs** (older, reference):
+- `/docs/ARCHIVE/membria-cli-spec.md` — v0.1.0-draft from 2025-02-11 (RFC)
+  - Describes original design vision
+  - Reference for Phase 1-3 goals
+  - Some items now implemented, some changed due to architectural evolution
+
+**Note:** This ARCHITECTURE_INVENTORY reflects **actual implemented state** (v1.0.1).
+Spec in ARCHIVE is historical reference only.
+
+---
+
 **Generated:** 2026-02-18
 **Session:** White-space audit + fixes + Cypher security hardening
-**Branch:** feat/squad-roles-integration (4 commits)
+**Branch:** feat/squad-roles-integration (6 commits)
