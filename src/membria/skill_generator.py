@@ -307,8 +307,8 @@ class SkillGenerator:
             )
 
             # Create Cypher statement
-            cypher = skill_schema.to_cypher_create()
-            self.graph_client.query(cypher)
+            cypher, params = skill_schema.to_cypher_create()
+            self.graph_client.query(cypher, params)
 
             logger.info(f"✅ Saved skill to graph: {skill.skill_id}")
             return True

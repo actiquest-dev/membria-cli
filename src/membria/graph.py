@@ -532,8 +532,8 @@ class GraphClient:
             logger.error("Not connected to graph")
             return False
         try:
-            cypher = doc.to_cypher_create()
-            self.graph.query(cypher)
+            cypher, params = doc.to_cypher_create()
+            self.graph.query(cypher, params)
             return True
         except Exception as e:
             logger.error(f"Failed to add document: {e}")

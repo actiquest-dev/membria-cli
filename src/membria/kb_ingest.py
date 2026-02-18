@@ -143,8 +143,8 @@ def ingest_documents(
             embedding=emb,
             metadata=metadata,
         )
-        cypher = doc.to_cypher_create()
-        graph_client.query(cypher)
+        cypher, params = doc.to_cypher_create()
+        graph_client.query(cypher, params)
 
     return {"files": len(files), "chunks": len(all_chunks), "skipped": skipped}
 

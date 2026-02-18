@@ -6,7 +6,7 @@ All nodes and relationships are defined here for easy reference and maintenance.
 
 from dataclasses import dataclass, field
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
 
 
@@ -98,31 +98,46 @@ class DecisionNodeSchema:
     # Vector embedding (FalkorDB native: stored as array property)
     embedding: Optional[List[float]] = None  # 1536-dim or smaller for semantic search
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        embedding_str = 'null'
-        if self.embedding is not None:
-            embedding_str = f'[{", ".join(str(x) for x in self.embedding)}]'
-
-        return f"""
-        CREATE (d:Decision {{
-            id: '{self.id}',
-            statement: {self._escape_string(self.statement)},
-            alternatives: {self._escape_string(str(self.alternatives))},
-            confidence: {self.confidence},
-            module: '{self.module}',
-            created_at: {self.created_at},
-            created_by: '{self.created_by}',
-            role_id: {'null' if not getattr(self, "role_id", None) else f"'{getattr(self, 'role_id')}'"},
-            assignment_id: {'null' if not getattr(self, "assignment_id", None) else f"'{getattr(self, 'assignment_id')}'"},
-            outcome: {'null' if self.outcome is None else f"'{self.outcome}'"},
-            resolved_at: {'null' if self.resolved_at is None else self.resolved_at},
-            actual_success_rate: {'null' if self.actual_success_rate is None else self.actual_success_rate},
-            engram_id: {'null' if self.engram_id is None else f"'{self.engram_id}'"},
-            commit_sha: {'null' if self.commit_sha is None else f"'{self.commit_sha}'"},
-            embedding: {embedding_str}
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (d:Decision {
+            id: $id,
+            statement: $statement,
+            alternatives: $alternatives,
+            confidence: $confidence,
+            module: $module,
+            created_at: $created_at,
+            created_by: $created_by,
+            role_id: $role_id,
+            assignment_id: $assignment_id,
+            outcome: $outcome,
+            resolved_at: $resolved_at,
+            actual_success_rate: $actual_success_rate,
+            engram_id: $engram_id,
+            commit_sha: $commit_sha,
+            embedding: $embedding
+        })
+        RETURN d
         """
+        params = {
+            "id": self.id,
+            "statement": self.statement,
+            "alternatives": str(self.alternatives),
+            "confidence": self.confidence,
+            "module": self.module,
+            "created_at": self.created_at,
+            "created_by": self.created_by,
+            "role_id": getattr(self, "role_id", None),
+            "assignment_id": getattr(self, "assignment_id", None),
+            "outcome": self.outcome,
+            "resolved_at": self.resolved_at,
+            "actual_success_rate": self.actual_success_rate,
+            "engram_id": self.engram_id,
+            "commit_sha": self.commit_sha,
+            "embedding": self.embedding
+        }
+        return query, params
 
     @staticmethod
     def _escape_string(s: str) -> str:
@@ -157,25 +172,42 @@ class EngramNodeSchema:
     lines_added: int = 0
     lines_removed: int = 0
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        return f"""
-        CREATE (e:Engram {{
-            id: '{self.id}',
-            session_id: '{self.session_id}',
-            commit_sha: '{self.commit_sha}',
-            commit_message: {DecisionNodeSchema._escape_string(self.commit_message)},
-            branch: '{self.branch}',
-            created_at: {self.created_at},
-            session_duration_sec: {self.session_duration_sec},
-            agent_type: '{self.agent_type}',
-            agent_model: '{self.agent_model}',
-            decisions_extracted: {self.decisions_extracted},
-            files_changed: {self.files_changed},
-            lines_added: {self.lines_added},
-            lines_removed: {self.lines_removed}
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (e:Engram {
+            id: $id,
+            session_id: $session_id,
+            commit_sha: $commit_sha,
+            commit_message: $commit_message,
+            branch: $branch,
+            created_at: $created_at,
+            session_duration_sec: $session_duration_sec,
+            agent_type: $agent_type,
+            agent_model: $agent_model,
+            decisions_extracted: $decisions_extracted,
+            files_changed: $files_changed,
+            lines_added: $lines_added,
+            lines_removed: $lines_removed
+        })
+        RETURN e
         """
+        params = {
+            "id": self.id,
+            "session_id": self.session_id,
+            "commit_sha": self.commit_sha,
+            "commit_message": self.commit_message,
+            "branch": self.branch,
+            "created_at": self.created_at,
+            "session_duration_sec": self.session_duration_sec,
+            "agent_type": self.agent_type,
+            "agent_model": self.agent_model,
+            "decisions_extracted": self.decisions_extracted,
+            "files_changed": self.files_changed,
+            "lines_added": self.lines_added,
+            "lines_removed": self.lines_removed
+        }
+        return query, params
 
 
 @dataclass
@@ -204,25 +236,40 @@ class CodeChangeNodeSchema:
     reverted_by: Optional[str] = None  # change_456 (if reverted)
     days_to_revert: Optional[int] = None  # How many days until reverted
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        files_json = str(self.files_changed).replace('"', '\\"')
-        return f"""
-        CREATE (c:CodeChange {{
-            id: '{self.id}',
-            commit_sha: '{self.commit_sha}',
-            files_changed: "{files_json}",
-            diff_stat_added: {self.diff_stat_added},
-            diff_stat_removed: {self.diff_stat_removed},
-            diff_stat_modified: {self.diff_stat_modified},
-            timestamp: {self.timestamp},
-            author: '{self.author}',
-            decision_id: {'null' if self.decision_id is None else f"'{self.decision_id}'"},
-            outcome: {'null' if self.outcome is None else f"'{self.outcome}'"},
-            reverted_by: {'null' if self.reverted_by is None else f"'{self.reverted_by}'"},
-            days_to_revert: {'null' if self.days_to_revert is None else self.days_to_revert}
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (c:CodeChange {
+            id: $id,
+            commit_sha: $commit_sha,
+            files_changed: $files_changed,
+            diff_stat_added: $diff_stat_added,
+            diff_stat_removed: $diff_stat_removed,
+            diff_stat_modified: $diff_stat_modified,
+            timestamp: $timestamp,
+            author: $author,
+            decision_id: $decision_id,
+            outcome: $outcome,
+            reverted_by: $reverted_by,
+            days_to_revert: $days_to_revert
+        })
+        RETURN c
         """
+        params = {
+            "id": self.id,
+            "commit_sha": self.commit_sha,
+            "files_changed": str(self.files_changed),
+            "diff_stat_added": self.diff_stat_added,
+            "diff_stat_removed": self.diff_stat_removed,
+            "diff_stat_modified": self.diff_stat_modified,
+            "timestamp": self.timestamp,
+            "author": self.author,
+            "decision_id": self.decision_id,
+            "outcome": self.outcome,
+            "reverted_by": self.reverted_by,
+            "days_to_revert": self.days_to_revert
+        }
+        return query, params
 
 
 @dataclass
@@ -248,23 +295,38 @@ class OutcomeNodeSchema:
     is_active: bool = True
     deprecated_reason: Optional[str] = None
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        return f"""
-        CREATE (o:Outcome {{
-            id: '{self.id}',
-            status: '{self.status}',
-            evidence: {DecisionNodeSchema._escape_string(self.evidence)},
-            measured_at: {self.measured_at},
-            performance_impact: {self.performance_impact},
-            reliability: {self.reliability},
-            maintenance_cost: {self.maintenance_cost},
-            code_change_id: {'null' if self.code_change_id is None else f"'{self.code_change_id}'"},
-            ttl_days: {'null' if self.ttl_days is None else self.ttl_days},
-            is_active: {'true' if self.is_active else 'false'},
-            deprecated_reason: {'null' if self.deprecated_reason is None else DecisionNodeSchema._escape_string(self.deprecated_reason)}
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (o:Outcome {
+            id: $id,
+            status: $status,
+            evidence: $evidence,
+            measured_at: $measured_at,
+            performance_impact: $performance_impact,
+            reliability: $reliability,
+            maintenance_cost: $maintenance_cost,
+            code_change_id: $code_change_id,
+            ttl_days: $ttl_days,
+            is_active: $is_active,
+            deprecated_reason: $deprecated_reason
+        })
+        RETURN o
         """
+        params = {
+            "id": self.id,
+            "status": self.status,
+            "evidence": self.evidence,
+            "measured_at": self.measured_at,
+            "performance_impact": self.performance_impact,
+            "reliability": self.reliability,
+            "maintenance_cost": self.maintenance_cost,
+            "code_change_id": self.code_change_id,
+            "ttl_days": self.ttl_days,
+            "is_active": self.is_active,
+            "deprecated_reason": self.deprecated_reason
+        }
+        return query, params
 
 
 @dataclass
@@ -297,28 +359,40 @@ class NegativeKnowledgeNodeSchema:
     # Vector embedding (FalkorDB native: for semantic search)
     embedding: Optional[List[float]] = None  # 1536-dim for similarity search
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        embedding_str = 'null'
-        if self.embedding is not None:
-            embedding_str = f'[{", ".join(str(x) for x in self.embedding)}]'
-
-        return f"""
-        CREATE (nk:NegativeKnowledge {{
-            id: '{self.id}',
-            hypothesis: {DecisionNodeSchema._escape_string(self.hypothesis)},
-            conclusion: {DecisionNodeSchema._escape_string(self.conclusion)},
-            evidence: {DecisionNodeSchema._escape_string(self.evidence)},
-            source: '{self.source}',
-            domain: '{self.domain}',
-            severity: '{self.severity}',
-            discovered_at: {self.discovered_at},
-            expires_at: {'null' if self.expires_at is None else self.expires_at},
-            blocks_pattern: '{self.blocks_pattern}',
-            recommendation: {DecisionNodeSchema._escape_string(self.recommendation)},
-            embedding: {embedding_str}
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (nk:NegativeKnowledge {
+            id: $id,
+            hypothesis: $hypothesis,
+            conclusion: $conclusion,
+            evidence: $evidence,
+            source: $source,
+            domain: $domain,
+            severity: $severity,
+            discovered_at: $discovered_at,
+            expires_at: $expires_at,
+            blocks_pattern: $blocks_pattern,
+            recommendation: $recommendation,
+            embedding: $embedding
+        })
+        RETURN nk
         """
+        params = {
+            "id": self.id,
+            "hypothesis": self.hypothesis,
+            "conclusion": self.conclusion,
+            "evidence": self.evidence,
+            "source": self.source,
+            "domain": self.domain,
+            "severity": self.severity,
+            "discovered_at": self.discovered_at,
+            "expires_at": self.expires_at,
+            "blocks_pattern": self.blocks_pattern,
+            "recommendation": self.recommendation,
+            "embedding": self.embedding
+        }
+        return query, params
 
 
 @dataclass
@@ -346,29 +420,42 @@ class DocumentNodeSchema:
     team_id: str = "default"
     project_id: str = "default"
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        embedding_str = 'null'
-        if self.embedding is not None:
-            embedding_str = f'[{", ".join(str(x) for x in self.embedding)}]'
-
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
         from membria.security import safe_json_dumps, escape_cypher_string
+        
         metadata_str = escape_cypher_string(safe_json_dumps(self.metadata))
-        return f"""
-        CREATE (doc:Document {{
-            id: '{self.id}',
-            file_path: '{self.file_path}',
-            content: {DecisionNodeSchema._escape_string(self.content)},
-            doc_type: '{self.doc_type}',
-            created_at: {self.created_at},
-            updated_at: {self.updated_at},
-            embedding: {embedding_str},
-            metadata: "{metadata_str}",
-            tenant_id: '{self.tenant_id}',
-            team_id: '{self.team_id}',
-            project_id: '{self.project_id}'
-        }})
+        
+        query = """
+        CREATE (doc:Document {
+            id: $id,
+            file_path: $file_path,
+            content: $content,
+            doc_type: $doc_type,
+            created_at: $created_at,
+            updated_at: $updated_at,
+            embedding: $embedding,
+            metadata: $metadata,
+            tenant_id: $tenant_id,
+            team_id: $team_id,
+            project_id: $project_id
+        })
+        RETURN doc
         """
+        params = {
+            "id": self.id,
+            "file_path": self.file_path,
+            "content": self.content,
+            "doc_type": self.doc_type,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "embedding": self.embedding,
+            "metadata": metadata_str,
+            "tenant_id": self.tenant_id,
+            "team_id": self.team_id,
+            "project_id": self.project_id
+        }
+        return query, params
 
 
 @dataclass
@@ -387,8 +474,8 @@ class SessionContextNodeSchema:
     expires_at: Optional[int] = None
     is_active: bool = True
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
         from membria.security import sanitize_text, sanitize_list
 
         task = sanitize_text(self.task, max_len=400)
@@ -397,21 +484,36 @@ class SessionContextNodeSchema:
         constraints = sanitize_list(self.constraints, max_len=200)
         doc_shot = sanitize_text(self.doc_shot_id or "", max_len=80) if self.doc_shot_id else ""
 
-        return f"""
-        CREATE (sc:SessionContext {{
-            id: '{self.id}',
-            session_id: '{self.session_id}',
-            task: {DecisionNodeSchema._escape_string(task)},
-            focus: {'null' if not focus else DecisionNodeSchema._escape_string(focus)},
-            current_plan: {'null' if not current_plan else DecisionNodeSchema._escape_string(current_plan)},
-            constraints: {json.dumps(constraints)},
-            doc_count: {int(self.doc_count)},
-            doc_shot_id: {'null' if not doc_shot else f"'{doc_shot}'"},
-            created_at: {self.created_at},
-            expires_at: {'null' if self.expires_at is None else self.expires_at},
-            is_active: {"true" if self.is_active else "false"}
-        }})
+        query = """
+        CREATE (sc:SessionContext {
+            id: $id,
+            session_id: $session_id,
+            task: $task,
+            focus: $focus,
+            current_plan: $current_plan,
+            constraints: $constraints,
+            doc_count: $doc_count,
+            doc_shot_id: $doc_shot_id,
+            created_at: $created_at,
+            expires_at: $expires_at,
+            is_active: $is_active
+        })
+        RETURN sc
         """
+        params = {
+            "id": self.id,
+            "session_id": self.session_id,
+            "task": task,
+            "focus": focus if focus else None,
+            "current_plan": current_plan if current_plan else None,
+            "constraints": json.dumps(constraints),
+            "doc_count": int(self.doc_count),
+            "doc_shot_id": doc_shot if doc_shot else None,
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+            "is_active": self.is_active
+        }
+        return query, params
 
 
 @dataclass
@@ -430,122 +532,113 @@ class ProjectNodeSchema:
     """Project Node - Task/initiative inside a workspace."""
     id: str
     name: str
+    workspace_id: str
     created_at: int
-    workspace_id: Optional[str] = None
     description: Optional[str] = None
-    tenant_id: str = "default"
-    team_id: str = "default"
 
 
 @dataclass
 class ProfileNodeSchema:
-    """Profile Node - Execution profile (config path + provider/model)."""
+    """Profile Node - LLM model/personality profile."""
     id: str
-    name: str
-    config_path: str
-    checksum: Optional[str] = None
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    allowlist_path: Optional[str] = None
-    updated_at: Optional[int] = None
-    tenant_id: str = "default"
-    team_id: str = "default"
-    project_id: str = "default"
+    model: str  # claude-opus-4-6, gpt-4, etc.
+    temperature: float = 0.7
+    top_p: float = 1.0
+    max_tokens: int = 4096
 
 
 @dataclass
 class RoleNodeSchema:
-    """Role Node - Behavior/instructions."""
-    id: str
+    """Role Node - Squad role template."""
+    id: str  # investigator, skeptic, arbiter, etc.
     name: str
-    description: Optional[str] = None
-    prompt_path: Optional[str] = None
-    context_policy: Optional[str] = None
-    tenant_id: str = "default"
-    team_id: str = "default"
+    system_prompt: str
+    description: str = ""
 
 
 @dataclass
 class SquadNodeSchema:
-    """Squad Node - A task-specific team."""
+    """Squad Node - Team of AI roles."""
     id: str
     name: str
-    strategy: str  # lead_review | parallel_arbiter | red_team
-    created_at: int
-    project_id: Optional[str] = None
-    tenant_id: str = "default"
-    team_id: str = "default"
+    roles: List[str] = field(default_factory=list)  # Role IDs
+    created_at: int = 0
 
 
 @dataclass
 class AssignmentNodeSchema:
-    """Assignment Node - Role+Profile inside a squad."""
+    """Assignment Node - Role assignment to a project."""
     id: str
-    role_id: str
+    squad_id: str
+    project_id: str
     profile_id: str
-    order: int = 0
-    weight: float = 1.0
-    tenant_id: str = "default"
-    team_id: str = "default"
-    project_id: str = "default"
+    role_id: str
+    assigned_at: int
+
 
 @dataclass
 class AntiPatternNodeSchema:
-    """AntiPattern Node - Code quality issue (from CodeDigger)"""
+    """AntiPattern Node - Code patterns to avoid (from CodeDigger)"""
 
-    # Identity
-    id: str  # ap_foreach_async
+    id: str  # ap_custom_jwt_auth
+    name: str  # "Custom JWT Auth"
+    category: str  # "security", "performance", "reliability"
 
-    # What
-    name: str  # "forEach with async callback"
-    category: str  # async, auth, database, performance
-    severity: str  # high, medium, low
+    # Stats
+    repos_affected: int  # Number of repos with this pattern
+    occurrence_count: int  # Total occurrences
+    removal_rate: float  # % of repos that remove it
+    avg_days_to_removal: float  # Average time to removal
 
-    # Statistics (from CodeDigger analysis)
-    repos_affected: int  # 15642
-    occurrence_count: int  # 234567
-    removal_rate: float  # 0.76 (76% get removed)
-    avg_days_to_removal: int  # 42 days average
-
-    # Detection
-    keywords: List[str] = None  # ["forEach", "async"]
-    regex_pattern: str = ""  # Regex for detection
-
-    # Evidence
+    # Content
+    keywords: List[str] = field(default_factory=list)
+    regex_pattern: str = ""
     example_bad: str = ""
     example_good: str = ""
 
-    # Discovery
+    # Origin
     first_seen: int = 0  # Unix timestamp
-    found_by: str = "CodeDigger"  # Who found it
-    source: str = "GitHub mining"
+    found_by: str = "CodeDigger"  # Source
+    source: str = ""  # Reference
 
-    def __post_init__(self):
-        if self.keywords is None:
-            self.keywords = []
-
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        keywords_json = str(self.keywords).replace('"', '\\"')
-        return f"""
-        CREATE (ap:AntiPattern {{
-            id: '{self.id}',
-            name: '{self.name}',
-            category: '{self.category}',
-            severity: '{self.severity}',
-            repos_affected: {self.repos_affected},
-            occurrence_count: {self.occurrence_count},
-            removal_rate: {self.removal_rate},
-            avg_days_to_removal: {self.avg_days_to_removal},
-            keywords: "{keywords_json}",
-            regex_pattern: '{self.regex_pattern}',
-            example_bad: {DecisionNodeSchema._escape_string(self.example_bad)},
-            example_good: {DecisionNodeSchema._escape_string(self.example_good)},
-            first_seen: {self.first_seen},
-            found_by: '{self.found_by}',
-            source: '{self.source}'
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (ap:AntiPattern {
+            id: $id,
+            name: $name,
+            category: $category,
+            repos_affected: $repos_affected,
+            occurrence_count: $occurrence_count,
+            removal_rate: $removal_rate,
+            avg_days_to_removal: $avg_days_to_removal,
+            keywords: $keywords,
+            regex_pattern: $regex_pattern,
+            example_bad: $example_bad,
+            example_good: $example_good,
+            first_seen: $first_seen,
+            found_by: $found_by,
+            source: $source
+        })
+        RETURN ap
         """
+        params = {
+            "id": self.id,
+            "name": self.name,
+            "category": self.category,
+            "repos_affected": self.repos_affected,
+            "occurrence_count": self.occurrence_count,
+            "removal_rate": self.removal_rate,
+            "avg_days_to_removal": self.avg_days_to_removal,
+            "keywords": str(self.keywords),
+            "regex_pattern": self.regex_pattern,
+            "example_bad": self.example_bad,
+            "example_good": self.example_good,
+            "first_seen": self.first_seen,
+            "found_by": self.found_by,
+            "source": self.source
+        }
+        return query, params
 
 
 @dataclass
@@ -575,26 +668,42 @@ class CalibrationProfileNodeSchema:
     # Recommendations
     recommendations: List[str] = field(default_factory=list)
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
-        recs_json = str(self.recommendations).replace('"', '\\"')
-        return f"""
-        CREATE (cp:CalibrationProfile {{
-            id: '{self.id}',
-            domain: '{self.domain}',
-            alpha: {self.alpha},
-            beta: {self.beta},
-            sample_size: {self.sample_size},
-            mean_success_rate: {self.mean_success_rate},
-            variance: {self.variance},
-            confidence_gap: {self.confidence_gap},
-            trend: '{self.trend}',
-            created_at: {self.created_at},
-            last_updated: {self.last_updated},
-            last_evaluation: {'null' if self.last_evaluation is None else self.last_evaluation},
-            recommendations: "{recs_json}"
-        }})
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
+        query = """
+        CREATE (cp:CalibrationProfile {
+            id: $id,
+            domain: $domain,
+            alpha: $alpha,
+            beta: $beta,
+            sample_size: $sample_size,
+            mean_success_rate: $mean_success_rate,
+            variance: $variance,
+            confidence_gap: $confidence_gap,
+            trend: $trend,
+            created_at: $created_at,
+            last_updated: $last_updated,
+            last_evaluation: $last_evaluation,
+            recommendations: $recommendations
+        })
+        RETURN cp
         """
+        params = {
+            "id": self.id,
+            "domain": self.domain,
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "sample_size": self.sample_size,
+            "mean_success_rate": self.mean_success_rate,
+            "variance": self.variance,
+            "confidence_gap": self.confidence_gap,
+            "trend": self.trend,
+            "created_at": self.created_at,
+            "last_updated": self.last_updated,
+            "last_evaluation": self.last_evaluation,
+            "recommendations": str(self.recommendations)
+        }
+        return query, params
 
 
 @dataclass
@@ -639,8 +748,8 @@ class SkillNodeSchema:
     # Status
     is_active: bool = True
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE statement for this node"""
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE statement for this node with parameterized query"""
         from membria.security import escape_cypher_string, safe_json_dumps
 
         green = escape_cypher_string(safe_json_dumps(self.green_zone))
@@ -650,37 +759,58 @@ class SkillNodeSchema:
         conflicts = escape_cypher_string(safe_json_dumps(self.conflicts_with))
         related = escape_cypher_string(safe_json_dumps(self.related_skills))
 
-        safe_id = escape_cypher_string(self.id)
-        safe_domain = escape_cypher_string(self.domain)
-        safe_name = escape_cypher_string(self.name)
-        safe_procedure = escape_cypher_string(self.procedure)
-
-        return f"""
-        CREATE (sk:Skill {{
-            id: '{safe_id}',
-            domain: '{safe_domain}',
-            name: '{safe_name}',
-            version: {self.version},
-            success_rate: {self.success_rate},
-            confidence: {self.confidence},
-            sample_size: {self.sample_size},
-            procedure: "{safe_procedure}",
-            green_zone: "{green}",
-            yellow_zone: "{yellow}",
-            red_zone: "{red}",
-            created_at: {self.created_at},
-            last_updated: {self.last_updated},
-            next_review: {self.next_review},
-            ttl_days: {'null' if self.ttl_days is None else self.ttl_days},
-            quality_score: {self.quality_score},
-            confidence_interval_lower: {self.confidence_interval_lower},
-            confidence_interval_upper: {self.confidence_interval_upper},
-            generated_from_decisions: "{from_decs}",
-            conflicts_with: "{conflicts}",
-            related_skills: "{related}",
-            is_active: {'true' if self.is_active else 'false'}
-        }})
+        query = """
+        CREATE (sk:Skill {
+            id: $id,
+            domain: $domain,
+            name: $name,
+            version: $version,
+            success_rate: $success_rate,
+            confidence: $confidence,
+            sample_size: $sample_size,
+            procedure: $procedure,
+            green_zone: $green_zone,
+            yellow_zone: $yellow_zone,
+            red_zone: $red_zone,
+            created_at: $created_at,
+            last_updated: $last_updated,
+            next_review: $next_review,
+            ttl_days: $ttl_days,
+            quality_score: $quality_score,
+            confidence_interval_lower: $confidence_interval_lower,
+            confidence_interval_upper: $confidence_interval_upper,
+            generated_from_decisions: $generated_from_decisions,
+            conflicts_with: $conflicts_with,
+            related_skills: $related_skills,
+            is_active: $is_active
+        })
+        RETURN sk
         """
+        params = {
+            "id": self.id,
+            "domain": self.domain,
+            "name": self.name,
+            "version": self.version,
+            "success_rate": self.success_rate,
+            "confidence": self.confidence,
+            "sample_size": self.sample_size,
+            "procedure": self.procedure,
+            "green_zone": green,
+            "yellow_zone": yellow,
+            "red_zone": red,
+            "created_at": self.created_at,
+            "last_updated": self.last_updated,
+            "next_review": self.next_review,
+            "ttl_days": self.ttl_days,
+            "quality_score": self.quality_score,
+            "confidence_interval_lower": self.confidence_interval_lower,
+            "confidence_interval_upper": self.confidence_interval_upper,
+            "generated_from_decisions": from_decs,
+            "conflicts_with": conflicts,
+            "related_skills": related,
+            "is_active": self.is_active
+        }
+        return query, params
 
 
 # ============================================================================
@@ -699,33 +829,33 @@ class RelationshipSchema:
     relation_type: RelationType
     properties: Dict[str, Any]
 
-    def to_cypher_create(self) -> str:
-        """Generate CREATE relationship statement"""
-        props = ", ".join(
-            f"{k}: {self._format_value(v)}"
-            for k, v in self.properties.items()
-        )
-        props_str = f" {{{props}}}" if props else ""
+    def to_cypher_create(self) -> Tuple[str, Dict]:
+        """Generate CREATE relationship statement with parameterized query"""
+        # Build the properties clause with parameter placeholders
+        prop_clauses = []
+        prop_params = {}
+        for i, (k, v) in enumerate(self.properties.items()):
+            param_name = f"prop_{k}"
+            prop_clauses.append(f"{k}: ${param_name}")
+            prop_params[param_name] = v
 
-        return f"""
-        MATCH (from:{self.from_node_type} {{id: '{self.from_node_id}'}}),
-              (to:{self.to_node_type} {{id: '{self.to_node_id}'}})
-        CREATE (from)-[r:{self.relation_type}{props_str}]->(to)
+        props_str = f" {{{', '.join(prop_clauses)}}}" if prop_clauses else ""
+
+        query = f"""
+        MATCH (from:{self.from_node_type.value} {{id: $from_id}}),
+              (to:{self.to_node_type.value} {{id: $to_id}})
+        CREATE (from)-[r:{self.relation_type.value}{props_str}]->(to)
         RETURN r
         """
 
-    @staticmethod
-    def _format_value(v):
-        """Format value for Cypher"""
-        if isinstance(v, str):
-            return f'"{v}"'
-        elif isinstance(v, bool):
-            return "true" if v else "false"
-        else:
-            return str(v)
+        params = {
+            "from_id": self.from_node_id,
+            "to_id": self.to_node_id,
+            **prop_params
+        }
 
+        return query, params
 
-# Convenience functions for creating relationships
 
 def make_made_in(decision_id: str, engram_id: str, timestamp: int) -> RelationshipSchema:
     """Decision --[MADE_IN]--> Engram"""
