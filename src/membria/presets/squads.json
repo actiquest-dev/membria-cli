@@ -1,0 +1,53 @@
+{
+  "presets": [
+    {
+      "id": "design-review",
+      "name": "Design Review",
+      "strategy": "lead_review",
+      "roles": ["architect", "reviewer"],
+      "profiles": ["default", "default"]
+    },
+    {
+      "id": "incident-rca",
+      "name": "Incident RCA",
+      "strategy": "parallel_arbiter",
+      "roles": ["investigator", "skeptic", "arbiter"],
+      "profiles": ["default", "default", "default"]
+    },
+    {
+      "id": "security-fix",
+      "name": "Security Fix",
+      "strategy": "red_team",
+      "roles": ["fixer", "red_team"],
+      "profiles": ["default", "default"]
+    },
+    {
+      "id": "migration-plan",
+      "name": "Migration Plan",
+      "strategy": "parallel_arbiter",
+      "roles": ["migrator", "ops", "arbiter"],
+      "profiles": ["default", "default", "default"]
+    },
+    {
+      "id": "api-contract",
+      "name": "API Contract",
+      "strategy": "lead_review",
+      "roles": ["backend", "frontend"],
+      "profiles": ["default", "default"]
+    },
+    {
+      "id": "perf-regression",
+      "name": "Perf Regression",
+      "strategy": "lead_review",
+      "roles": ["perf", "reviewer"],
+      "profiles": ["default", "default"]
+    },
+    {
+      "id": "release-gate",
+      "name": "Release Gate",
+      "strategy": "lead_review",
+      "roles": ["release_manager", "qa"],
+      "profiles": ["default", "default"]
+    }
+  ]
+}

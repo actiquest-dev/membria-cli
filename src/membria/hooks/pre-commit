@@ -1,0 +1,55 @@
+#!/bin/bash
+# Membria pre-commit hook: Check staged code for antipatterns
+#
+# Install this hook:
+#   cp src/membria/hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# The hook will run 'membria antipattern check-staged' and:
+#   - Exit 0 (allow commit) if no critical antipatterns found
+#   - Exit 1 (warn, allow with --force) if warnings found
+#   - Exit 2 (block commit) if critical patterns found
+
+set -e
+
+# Get the staged diff
+STAGED_DIFF=$(git diff --cached --unified=0)
+
+if [ -z "$STAGED_DIFF" ]; then
+    # Nothing staged, allow commit
+    exit 0
+fi
+
+# Write diff to temp file
+TEMP_FILE=$(mktemp)
+echo "$STAGED_DIFF" > "$TEMP_FILE"
+trap "rm -f $TEMP_FILE" EXIT
+
+# Check for antipatterns in staged changes
+echo "🔍 Checking staged code for antipatterns..." >&2
+
+# Create a temporary file with the staged code
+STAGED_CODE=$(git diff --cached -U0 | grep '^+' | grep -v '^+++' | cut -c 2- || true)
+
+if [ -z "$STAGED_CODE" ]; then
+    # No changes to check
+    exit 0
+fi
+
+# Run antipattern check through membria
+# Note: This is a simplified version - full integration would use Python API
+TEMP_CODE=$(mktemp --suffix=.tmp)
+echo "$STAGED_CODE" > "$TEMP_CODE"
+trap "rm -f $TEMP_CODE" EXIT
+
+# Try to run membria check, but don't fail if membria is not available
+if command -v membria &> /dev/null; then
+    if membria antipattern check "$TEMP_CODE" 2>&1 | grep -q "CRITICAL"; then
+        echo "🚫 CRITICAL antipatterns detected. Commit blocked." >&2
+        echo "   Run: membria antipattern evidence <pattern-id>" >&2
+        exit 2
+    fi
+fi
+
+# If we get here, allow commit
+exit 0

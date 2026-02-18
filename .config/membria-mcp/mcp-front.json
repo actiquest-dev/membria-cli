@@ -1,0 +1,178 @@
+{
+  "version": "v0.0.1-DEV_EDITION_EXPECT_CHANGES",
+  "proxy": {
+    "name": "membria-mcp-front",
+    "addr": ":8080",
+    "baseURL": "http://localhost:8080",
+    "auth": {
+      "kind": "oauth",
+      "allowedOrigins": [
+        "http://localhost:8080"
+      ],
+      "allowedDomains": [
+        "gmail.com"
+      ],
+      "encryptionKey": {
+        "$env": "MCP_FRONT_ENCRYPTION_KEY"
+      },
+      "jwtSecret": {
+        "$env": "MCP_FRONT_JWT_SECRET"
+      },
+      "issuer": "http://localhost:8080",
+      "tokenTtl": "24h",
+      "storage": "file",
+      "filePath": "/Users/miguelaprossine/membria-cli/.config/membria-mcp/mcp-front.tokens.json",
+      "idp": {
+        "provider": "github",
+        "clientId": {
+          "$env": "MCP_FRONT_GITHUB_CLIENT_ID"
+        },
+        "clientSecret": {
+          "$env": "MCP_FRONT_GITHUB_CLIENT_SECRET"
+        },
+        "redirectUri": "http://localhost:8080/oauth/callback",
+        "allowedOrgs": []
+      }
+    }
+  },
+  "mcpServers": {
+    "membria": {
+      "transportType": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"
+      ]
+    },
+    "openai": {
+      "transportType": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"
+      ],
+      "env": {
+        "OPENAI_API_KEY": {
+          "$userToken": "{{token}}"
+        }
+      },
+      "requiresUserToken": true,
+      "userAuthentication": {
+        "type": "manual",
+        "displayName": "OpenAI API Key",
+        "instructions": "Enter your OpenAI API key.",
+        "helpUrl": "https://platform.openai.com/account/api-keys",
+        "tokenFormat": "^sk-[A-Za-z0-9]{10,}$"
+      }
+    },
+    "anthropic": {
+      "transportType": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": {
+          "$userToken": "{{token}}"
+        }
+      },
+      "requiresUserToken": true,
+      "userAuthentication": {
+        "type": "manual",
+        "displayName": "Anthropic API Key",
+        "instructions": "Enter your Anthropic API key.",
+        "helpUrl": "https://console.anthropic.com/settings/keys",
+        "tokenFormat": "^(sk-ant-)?[A-Za-z0-9_-]{10,}$"
+      }
+    },
+    "kilo-code": {
+      "transportType": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"
+      ],
+      "env": {
+        "KILO_CODE_API_KEY": {
+          "$userToken": "{{token}}"
+        }
+      },
+      "requiresUserToken": true,
+      "userAuthentication": {
+        "type": "manual",
+        "displayName": "Kilo Code API Key",
+        "instructions": "Enter your Kilo Code API key.",
+        "helpUrl": "",
+        "tokenFormat": "^.+$"
+      }
+    },
+    "openai-oauth": {
+      "transportType": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"
+      ],
+      "env": {
+        "OPENAI_OAUTH_ACCESS_TOKEN": {
+          "$userToken": "{{token}}"
+        }
+      },
+      "requiresUserToken": true,
+      "userAuthentication": {
+        "type": "oauth",
+        "displayName": "OpenAI (Browser Login)",
+        "clientId": {
+          "$env": "OPENAI_OAUTH_CLIENT_ID"
+        },
+        "authorizationUrl": "https://auth.openai.com/oauth/authorize",
+        "tokenUrl": "https://auth.openai.com/oauth/token",
+        "scopes": [
+          "openid",
+          "profile",
+          "email",
+          "offline_access"
+        ],
+        "pkce": true,
+        "authorizationParams": {
+          "id_token_add_organizations": "true",
+          "codex_cli_simplified_flow": "true",
+          "originator": "codex_cli_rs"
+        },
+        "tokenRequestFormat": "form",
+        "redirectUri": "http://localhost:1455/auth/callback"
+      }
+    },
+    "anthropic-oauth": {
+      "transportType": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"
+      ],
+      "env": {
+        "ANTHROPIC_OAUTH_ACCESS_TOKEN": {
+          "$userToken": "{{token}}"
+        }
+      },
+      "requiresUserToken": true,
+      "userAuthentication": {
+        "type": "oauth",
+        "displayName": "Anthropic (Browser Login)",
+        "clientId": {
+          "$env": "ANTHROPIC_OAUTH_CLIENT_ID"
+        },
+        "authorizationUrl": "https://claude.ai/oauth/authorize",
+        "tokenUrl": "https://console.anthropic.com/v1/oauth/token",
+        "scopes": [
+          "org:create_api_key",
+          "user:profile",
+          "user:inference"
+        ],
+        "pkce": true,
+        "authorizationParams": {
+          "code": "true",
+          "product": "console"
+        },
+        "tokenRequestFormat": "json",
+        "includeState": true,
+        "redirectUri": "https://console.anthropic.com/oauth/code/callback"
+      }
+    }
+  }
+}

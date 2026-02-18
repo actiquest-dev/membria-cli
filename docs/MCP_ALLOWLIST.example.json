@@ -1,0 +1,9 @@
+{
+  "servers": [
+    {
+      "id": "example",
+      "base_url": "https://mcp.example.com",
+      "auth_header": "Bearer REPLACE_ME"
+    }
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "name": "membria",
+  "displayName": "Membria - Decision Intelligence",
+  "description": "AI-powered decision tracking and team calibration for VSCode. Captures decisions, validates plans, and learns from outcomes.",
+  "version": "1.0.1",
+  "publisher": "MembriaAI",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "categories": [
+    "Education",
+    "Visualization",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "decision",
+    "planning",
+    "calibration",
+    "team-learning",
+    "context",
+    "ai"
+  ],
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/miguelaprossine/membria-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/miguelaprossine/membria-cli/issues"
+  },
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "membria.captureDecision",
+        "title": "Membria: Capture Decision",
+        "category": "Membria",
+        "icon": "$(record)",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "membria.getContext",
+        "title": "Membria: Get Decision Context",
+        "category": "Membria",
+        "icon": "$(info)",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "membria.validatePlan",
+        "title": "Membria: Validate Plan",
+        "category": "Membria",
+        "icon": "$(check)",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "membria.showPlans",
+        "title": "Membria: Show Plans",
+        "category": "Membria",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "membria.showSkills",
+        "title": "Membria: Show Skills",
+        "category": "Membria",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "membria.generateSkill",
+        "title": "Membria: Generate Skill",
+        "category": "Membria",
+        "icon": "$(star)"
+      },
+      {
+        "command": "membria.togglePanel",
+        "title": "Membria: Toggle Decision Panel",
+        "category": "Membria",
+        "icon": "$(sidebar-toggle)"
+      },
+      {
+        "command": "membria.recordOutcome",
+        "title": "Membria: Record Decision Outcome",
+        "category": "Membria",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "membria.viewCalibration",
+        "title": "Membria: View Team Calibration",
+        "category": "Membria",
+        "icon": "$(graph)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "membria.captureDecision"
+        },
+        {
+          "command": "membria.getContext"
+        },
+        {
+          "command": "membria.validatePlan"
+        },
+        {
+          "command": "membria.showPlans"
+        },
+        {
+          "command": "membria.showSkills"
+        },
+        {
+          "command": "membria.generateSkill"
+        },
+        {
+          "command": "membria.togglePanel"
+        },
+        {
+          "command": "membria.recordOutcome"
+        },
+        {
+          "command": "membria.viewCalibration"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "membria.captureDecision",
+          "group": "1_modification",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "membria.getContext",
+          "group": "1_modification",
+          "when": "editorTextFocus"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "membria-explorer",
+          "title": "Membria",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "membria-explorer": [
+        {
+          "type": "webview",
+          "id": "membria.chat",
+          "name": "Membria Chat & Audit",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "membria.chat",
+        "contents": "Membria is ready. \n[Ask Lead Architect](command:membria.chat.focus)\nYour AI Council is watching your code."
+      }
+    ],
+    "configuration": {
+      "title": "Membria",
+      "properties": {
+        "membria.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable Membria extension"
+        },
+        "membria.serverHost": {
+          "type": "string",
+          "default": "localhost",
+          "description": "Membria MCP server host"
+        },
+        "membria.serverPort": {
+          "type": "integer",
+          "default": 3117,
+          "description": "Membria daemon HTTP server port"
+        },
+        "membria.showContextOnHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show decision context on hover"
+        },
+        "membria.showWarningsInline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show warnings as inline decorations"
+        },
+        "membria.planModeEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Plan Mode (PRE/MID/POST validation)"
+        },
+        "membria.autoCapture": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-capture decisions from code comments"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "membria.captureDecision",
+        "key": "ctrl+shift+m d",
+        "mac": "cmd+shift+m d",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "membria.getContext",
+        "key": "ctrl+shift+m c",
+        "mac": "cmd+shift+m c",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "membria.validatePlan",
+        "key": "ctrl+shift+m v",
+        "mac": "cmd+shift+m v"
+      },
+      {
+        "command": "membria.togglePanel",
+        "key": "ctrl+shift+m p",
+        "mac": "cmd+shift+m p"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "test": "npx ts-node src/test.ts",
+    "package": "vsce package",
+    "vsce-package": "npm run compile && vsce package",
+    "publish": "npm run vsce-package && vsce publish",
+    "clean": "rm -rf out/ node_modules/ *.vsix"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.3",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.2"
+  }
+}

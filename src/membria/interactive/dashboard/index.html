@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Membria Analytics Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-color: #0d1117;
+        --panel-bg: rgba(22, 27, 34, 0.8);
+        --border-color: #30363d;
+        --text-color: #c9d1d9;
+        --accent-color: #58a6ff;
+        --node-decision: #79c0ff;
+        --node-engram: #d2a8ff;
+        --node-outcome: #aff5b4;
+        --node-agent: #ff7b72;
+      }
+
+      body {
+        margin: 0;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        font-family: "Inter", sans-serif;
+        overflow: hidden;
+      }
+
+      #container {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+      }
+
+      #graph {
+        flex-grow: 1;
+        cursor: grab;
+      }
+
+      #sidebar {
+        width: 320px;
+        background: var(--panel-bg);
+        backdrop-filter: blur(10px);
+        border-left: 1px solid var(--border-color);
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        z-index: 10;
+      }
+
+      h1 {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin: 0;
+        color: var(--accent-color);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .node-info-card {
+        background: rgba(48, 54, 61, 0.4);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 15px;
+        font-size: 0.9rem;
+      }
+
+      .prop-row {
+        margin-bottom: 8px;
+      }
+
+      .prop-key {
+        color: #8b949e;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .prop-val {
+        font-family: "JetBrains Mono", monospace;
+        word-break: break-all;
+      }
+
+      .legend {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 0.8rem;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+
+      line {
+        stroke: #30363d;
+        stroke-opacity: 0.6;
+      }
+
+      text {
+        font-family: "Inter", sans-serif;
+        font-size: 10px;
+        fill: #8b949e;
+        pointer-events: none;
+      }
+
+      circle {
+        stroke-width: 2px;
+        transition: r 0.3s ease;
+      }
+
+      circle:hover {
+        stroke: #fff;
+        filter: brightness(1.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <svg id="graph"></svg>
+      <div id="sidebar">
+        <h1>🧠 Membria Graph</h1>
+
+        <div id="node-details" class="node-info-card">
+          <div class="prop-key">Details</div>
+          <div class="prop-val" style="color: #8b949e">
+            Select a node to view its reasoning properties.
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item">
+            <div class="dot" style="background: var(--node-decision)"></div>
+            Decision
+          </div>
+          <div class="legend-item">
+            <div class="dot" style="background: var(--node-engram)"></div>
+            Engram
+          </div>
+          <div class="legend-item">
+            <div class="dot" style="background: var(--node-outcome)"></div>
+            Outcome
+          </div>
+          <div class="legend-item">
+            <div class="dot" style="background: var(--node-agent)"></div>
+            Agent
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const colorMap = {
+        Decision: "var(--node-decision)",
+        Engram: "var(--node-engram)",
+        Outcome: "var(--node-outcome)",
+        Agent: "var(--node-agent)",
+      };
+
+      const width = window.innerWidth - 320;
+      const height = window.innerHeight;
+
+      const svg = d3
+        .select("#graph")
+        .attr("width", width)
+        .attr("height", height);
+
+      const container = svg.append("g");
+
+      // Zoom & Pan
+      svg.call(
+        d3.zoom().on("zoom", (event) => {
+          container.attr("transform", event.transform);
+        }),
+      );
+
+      fetch("/api/graph")
+        .then((res) => res.json())
+        .then((data) => {
+          const simulation = d3
+            .forceSimulation(data.nodes)
+            .force(
+              "link",
+              d3
+                .forceLink(data.links)
+                .id((d) => d.id)
+                .distance(100),
+            )
+            .force("charge", d3.forceManyBody().strength(-300))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+          const link = container
+            .append("g")
+            .selectAll("line")
+            .data(data.links)
+            .join("line");
+
+          const node = container
+            .append("g")
+            .selectAll("circle")
+            .data(data.nodes)
+            .join("circle")
+            .attr("r", 8)
+            .attr("fill", (d) => colorMap[d.label] || "#999")
+            .attr("stroke", "#0d1117")
+            .call(drag(simulation))
+            .on("click", (event, d) => showDetails(d));
+
+          node.append("title").text((d) => d.properties.topic || d.label);
+
+          simulation.on("tick", () => {
+            link
+              .attr("x1", (d) => d.source.x)
+              .attr("y1", (d) => d.source.y)
+              .attr("x2", (d) => d.target.x)
+              .attr("y2", (d) => d.target.y);
+
+            node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+          });
+        });
+
+      function showDetails(d) {
+        const html = Object.entries(d.properties)
+          .map(
+            ([k, v]) => `
+                <div class="prop-row">
+                    <div class="prop-key">${k}</div>
+                    <div class="prop-val">${v}</div>
+                </div>
+            `,
+          )
+          .join("");
+        document.getElementById("node-details").innerHTML = `
+                <div style="font-weight:600; color: ${colorMap[d.label]}; margin-bottom: 15px;">${d.label.toUpperCase()}</div>
+                ${html}
+            `;
+      }
+
+      function drag(simulation) {
+        function dragstarted(event) {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          event.subject.fx = event.subject.x;
+          event.subject.fy = event.subject.y;
+        }
+        function dragged(event) {
+          event.subject.fx = event.x;
+          event.subject.fy = event.y;
+        }
+        function dragended(event) {
+          if (!event.active) simulation.alphaTarget(0);
+          event.subject.fx = null;
+          event.subject.fy = null;
+        }
+        return d3
+          .drag()
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended);
+      }
+    </script>
+  </body>
+</html>

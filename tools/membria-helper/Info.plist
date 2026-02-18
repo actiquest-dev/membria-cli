@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>MembriaHelper</string>
+  <key>CFBundleDisplayName</key>
+  <string>Membria Helper</string>
+  <key>CFBundleIdentifier</key>
+  <string>ai.membria.helper</string>
+  <key>CFBundleExecutable</key>
+  <string>membria-helper</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleVersion</key>
+  <string>1.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Membria URL</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>membria</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

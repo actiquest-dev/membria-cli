@@ -149,23 +149,145 @@ class Decision:
     statement: str
     alternatives: List[str]
     confidence: float
-    outcome: Optional[str] = None  # "success", "failure", "pending"
+    module: str  # "database", "auth", "api", "frontend", "backend"
     created_at: datetime = field(default_factory=datetime.now)
+    created_by: str = "claude-code"
+    outcome: Optional[str] = None  # "success", "failure", "pending"
     resolved_at: Optional[datetime] = None
-    module: Optional[str] = None
+    actual_success_rate: Optional[float] = None
     engram_id: Optional[str] = None
     commit_sha: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Memory lifecycle metadata
+    memory_type: Optional[str] = None  # episodic, semantic, procedural
+    memory_subject: Optional[str] = None  # agent, user
+    ttl_days: Optional[int] = None
+    last_verified_at: Optional[datetime] = None
+    is_active: bool = True
+    deprecated_reason: Optional[str] = None
+    source: Optional[str] = None
+    role_id: Optional[str] = None
+    assignment_id: Optional[str] = None
+
+
+@dataclass
+class CodeChange:
+    """Code change (commit) node in reasoning graph."""
+    change_id: str
+    commit_sha: str
+    files_changed: List[str]
+    timestamp: datetime
+    author: str = "claude-code"
+    decision_id: Optional[str] = None
+    outcome: Optional[str] = None  # "success", "failure", "reverted"
+    reverted_by: Optional[str] = None
+    days_to_revert: Optional[int] = None
+    lines_added: int = 0
+    lines_removed: int = 0
+
+
+@dataclass
+class Outcome:
+    """Outcome node tracking decision consequences."""
+    outcome_id: str
+    status: str  # "success", "failure", "partial"
+    evidence: str = ""
+    measured_at: datetime = field(default_factory=datetime.now)
+    performance_impact: float = 1.0  # 1.0 = no impact, <1 = slower, >1 = faster
+    reliability: float = 0.0  # 0-1
+    maintenance_cost: float = 1.0  # Cost multiplier
+    code_change_id: Optional[str] = None
+
+    # Memory lifecycle metadata
+    ttl_days: Optional[int] = None
+    is_active: bool = True
+    deprecated_reason: Optional[str] = None
 
 
 @dataclass
 class NegativeKnowledge:
     """Known failure or constraint."""
+    nk_id: str
     hypothesis: str
+    conclusion: str
     evidence: str
-    domain: str
-    last_attempt: datetime
+    domain: str  # "auth", "db", "api", etc.
     severity: str = "medium"  # "low", "medium", "high"
+    discovered_at: datetime = field(default_factory=datetime.now)
+    expires_at: Optional[datetime] = None
+    blocks_pattern: Optional[str] = None
+    recommendation: str = ""
+    source: str = "analysis"
+
+
+@dataclass
+class Workspace:
+    """Workspace container."""
+    workspace_id: str
+    name: str
+    description: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class Project:
+    """Project inside workspace."""
+    project_id: str
+    name: str
+    workspace_id: Optional[str] = None
+    description: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class Profile:
+    """Execution profile (config)."""
+    profile_id: str
+    name: str
+    config_path: str
+    checksum: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    allowlist_path: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+@dataclass
+class Role:
+    """Role / behavior profile."""
+    role_id: str
+    name: str
+    description: Optional[str] = None
+
+
+@dataclass
+class Squad:
+    """Task-specific team."""
+    squad_id: str
+    name: str
+    strategy: str  # lead_review | parallel_arbiter | red_team
+    project_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class Assignment:
+    """Role+Profile inside a squad."""
+    assignment_id: str
+    squad_id: str
+    role_id: str
+    profile_id: str
+    order: int = 0
+    weight: float = 1.0
+
+    # Memory lifecycle metadata
+    memory_type: Optional[str] = None  # episodic, semantic, procedural
+    memory_subject: Optional[str] = None  # agent, user
+    ttl_days: Optional[int] = None
+    last_verified_at: Optional[datetime] = None
+    is_active: bool = True
+    deprecated_reason: Optional[str] = None
 
 
 @dataclass
@@ -173,7 +295,17 @@ class Antipattern:
     """Code pattern to avoid."""
     pattern_id: str
     name: str
-    description: str
-    prevalence: str  # "89% removed within 97 days"
-    recommendation: str
-    triggered_count: int = 0
+    category: str
+    severity: str  # "high", "medium", "low"
+    repos_affected: int = 0
+    occurrence_count: int = 0
+    removal_rate: float = 0.0  # 0-1
+    avg_days_to_removal: int = 0
+    keywords: List[str] = field(default_factory=list)
+    regex_pattern: str = ""
+    example_bad: str = ""
+    example_good: str = ""
+    first_seen: datetime = field(default_factory=datetime.now)
+    found_by: str = "detector"
+    source: str = "analysis"
+    recommendation: str = ""

@@ -1,0 +1,155 @@
+{
+  "name": "membria-mcp",
+  "version": "1.0.0",
+  "description": "Membria MCP Server - Decision Intelligence for Claude Code",
+  "type": "mcp",
+  "mcp": {
+    "protocol": "stdio",
+    "command": "python",
+    "args": [
+      "-m",
+      "membria.mcp_server"
+    ]
+  },
+  "tools": {
+    "membria.capture_decision": {
+      "description": "Capture a decision made during coding",
+      "parameters": {
+        "statement": {
+          "type": "string",
+          "description": "What decision was made?"
+        },
+        "alternatives": {
+          "type": "array",
+          "description": "Alternative options considered"
+        },
+        "confidence": {
+          "type": "number",
+          "description": "Confidence level 0-1"
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "module": {
+              "type": "string",
+              "description": "Domain (database, auth, api, etc.)"
+            }
+          }
+        }
+      }
+    },
+    "membria.record_outcome": {
+      "description": "Record the outcome of a decision",
+      "parameters": {
+        "decision_id": {
+          "type": "string",
+          "description": "Decision ID from capture_decision"
+        },
+        "final_status": {
+          "type": "string",
+          "description": "success, failure, or partial"
+        },
+        "final_score": {
+          "type": "number",
+          "description": "Quality score 0-1"
+        },
+        "decision_domain": {
+          "type": "string",
+          "description": "Domain for calibration"
+        }
+      }
+    },
+    "membria.get_calibration": {
+      "description": "Get team calibration data for a domain",
+      "parameters": {
+        "domain": {
+          "type": "string",
+          "description": "Domain name (database, auth, api, etc.)"
+        }
+      }
+    },
+    "membria.get_decision_context": {
+      "description": "Get decision context with calibration and history",
+      "parameters": {
+        "statement": {
+          "type": "string",
+          "description": "Decision you're about to make"
+        },
+        "module": {
+          "type": "string",
+          "description": "Domain context"
+        },
+        "confidence": {
+          "type": "number",
+          "description": "Your confidence level 0-1"
+        }
+      }
+    },
+    "membria.get_plan_context": {
+      "description": "Get context BEFORE planning (PRE-PLAN)",
+      "parameters": {
+        "domain": {
+          "type": "string",
+          "description": "Domain for planning"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Scope of the plan"
+        }
+      }
+    },
+    "membria.validate_plan": {
+      "description": "Validate a plan against known issues (MID-PLAN)",
+      "parameters": {
+        "steps": {
+          "type": "array",
+          "description": "Plan steps to validate"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Domain context"
+        }
+      }
+    },
+    "membria.record_plan": {
+      "description": "Record plan decisions (POST-PLAN)",
+      "parameters": {
+        "plan_steps": {
+          "type": "array",
+          "description": "Steps in the plan"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Planning domain"
+        },
+        "plan_confidence": {
+          "type": "number",
+          "description": "Plan confidence 0-1"
+        },
+        "duration_estimate": {
+          "type": "string",
+          "description": "Time estimate"
+        },
+        "warnings_shown": {
+          "type": "number",
+          "description": "Warnings Membria showed"
+        },
+        "warnings_heeded": {
+          "type": "number",
+          "description": "Warnings you followed"
+        }
+      }
+    }
+  },
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false,
+    "notifications": false
+  },
+  "metadata": {
+    "author": "Membria Team",
+    "repository": "https://github.com/miguelaprossine/membria-cli",
+    "documentation": "docs/CLAUDE_INTEGRATION.md"
+  }
+}

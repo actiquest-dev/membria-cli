@@ -3,7 +3,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List
 from dataclasses import dataclass, field, asdict
 import toml
 
@@ -11,9 +11,9 @@ import toml
 @dataclass
 class FalkorDBConfig:
     """FalkorDB connection configuration."""
-    host: str = "localhost"
-    port: int = 6379
-    password: Optional[str] = None
+    host: str = field(default_factory=lambda: os.environ.get("FALKORDB_HOST", "localhost"))
+    port: int = field(default_factory=lambda: int(os.environ.get("FALKORDB_PORT", "6379")))
+    password: Optional[str] = field(default_factory=lambda: os.environ.get("FALKORDB_PASSWORD"))
     db: int = 0
     mode: str = "local"  # "local" or "remote"
 
@@ -66,6 +66,21 @@ class EngramsConfig:
 
 
 @dataclass
+class MemoryToolsConfig:
+    """Memory tools auto-registration."""
+    enabled: bool = False
+
+
+@dataclass
+class MCPDiscoveryConfig:
+    """MCP external tool discovery."""
+    enabled: bool = False
+    allowlist_path: str = field(default_factory=lambda: str(Path.home() / ".membria" / "mcp_allowlist.json"))
+    timeout_sec: int = 8
+    refresh_sec: int = 600
+
+
+@dataclass
 class MembriaConfig:
     """Main Membria configuration."""
     mode: str = "solo"  # "solo", "team", "enterprise"
@@ -77,18 +92,98 @@ class MembriaConfig:
     detection: DetectionConfig = field(default_factory=DetectionConfig)
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     engrams: EngramsConfig = field(default_factory=EngramsConfig)
+    memory_tools: MemoryToolsConfig = field(default_factory=MemoryToolsConfig)
+    mcp_discovery: MCPDiscoveryConfig = field(default_factory=MCPDiscoveryConfig)
+    tenant_id: str = "default"
+    team_id: str = "default"
+    project_id: str = "default"
+    context_plugins: List[str] = field(default_factory=lambda: [
+        "docshot",
+        "session_context",
+        "calibration",
+        "negative_knowledge",
+        "similar_decisions",
+        "behavior_chains",
+    ])
     ui_color: str = "auto"
     ui_compact: bool = False
+    
+    # Default AI Settings
+    default_model: str = "claude-3-5-sonnet-latest"
+    default_provider: str = "anthropic"
+    
+    # Interactive Mode Configs (dict storage for Pydantic models)
+    providers: Dict[str, Any] = field(default_factory=lambda: {
+        "anthropic": {
+            "type": "anthropic",
+            "model": "claude-3-5-sonnet-latest",
+            "api_key": "",
+            "endpoint": "https://api.anthropic.com/v1",
+            "enabled": True
+        },
+        "openai": {
+            "type": "openai",
+            "model": "gpt-4-turbo",
+            "api_key": "",
+            "endpoint": "https://api.openai.com/v1",
+            "enabled": True
+        },
+        "kilo": {
+            "type": "kilo",
+            "model": "kilo-code",
+            "api_key": "",
+            "endpoint": "http://kilo.ai",
+            "enabled": False,
+            "available_models": [
+                "kilo-code",
+                "kilo-chat",
+                "kilo-instruct",
+                "kilo-vision",
+                "kilo-embeddings",
+                "kilo-reasoning",
+                "kilo-translation",
+                "kilo-summarization",
+                "kilo-qa",
+                "kilo-classification",
+                "kilo-sentiment",
+                "kilo-ner",
+                "kilo-semantic-search",
+                "kilo-generation",
+                "kilo-dialogue",
+                "kilo-explanation",
+                "kilo-analysis",
+                "kilo-optimization",
+                "kilo-detection",
+                "kilo-forecasting"
+            ]
+        },
+        "openrouter": {
+            "type": "openrouter",
+            "model": "kilo-code",
+            "api_key": "",
+            "endpoint": "https://openrouter.ai/api/v1",
+            "enabled": False,
+            "available_models": [
+                "kilo-code"
+            ]
+        }
+    })
+    team: Dict[str, Any] = field(default_factory=dict)
+    orchestration: Dict[str, Any] = field(default_factory=dict)
 
 
 class ConfigManager:
-    """Manages Membria configuration."""
+    """Manages Membria configuration loading and saving."""
 
     def __init__(self, config_dir: Optional[str] = None):
         self.config_dir = Path(config_dir or Path.home() / ".membria")
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_file = self.config_dir / "config.toml"
         self.config: MembriaConfig = self._load_config()
+
+    def is_first_run(self) -> bool:
+        """Check if this is the first run (no providers configured)."""
+        return not self.config.providers
 
     def _load_config(self) -> MembriaConfig:
         """Load configuration from file or create default."""
@@ -140,10 +235,18 @@ class ConfigManager:
         parts = key.split(".")
         obj = self.config
         for part in parts[:-1]:
+            if isinstance(obj, dict):
+                if part not in obj or not isinstance(obj[part], (dict,)):
+                    obj[part] = {}
+                obj = obj[part]
+                continue
             if not hasattr(obj, part):
                 setattr(obj, part, {})
             obj = getattr(obj, part)
-        setattr(obj, parts[-1], value)
+        if isinstance(obj, dict):
+            obj[parts[-1]] = value
+        else:
+            setattr(obj, parts[-1], value)
         self.save()
 
     def to_dict(self) -> dict:

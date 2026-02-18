@@ -34,3 +34,42 @@ def test_calibration_show_json_format(cli_runner: CliRunner, mock_graph_for_cali
     """Test calibration in JSON format."""
     result = cli_runner.invoke(app, ["calibration", "show", "--format", "json"])
     assert result.exit_code == 0
+
+
+def test_calibration_profile_no_data(cli_runner: CliRunner) -> None:
+    """Test profile command with no data."""
+    result = cli_runner.invoke(app, ["calibration", "profile", "unknown_domain"])
+    assert result.exit_code == 0
+    assert "No calibration data" in result.stdout
+
+
+def test_calibration_profile_json_format(cli_runner: CliRunner) -> None:
+    """Test profile command in JSON format."""
+    result = cli_runner.invoke(app, ["calibration", "profile", "api", "--format", "json"])
+    # Should exit cleanly even with no data
+    assert result.exit_code == 0
+
+
+def test_calibration_guidance_no_data(cli_runner: CliRunner) -> None:
+    """Test guidance command with no data."""
+    result = cli_runner.invoke(app, ["calibration", "guidance", "database"])
+    assert result.exit_code == 0
+    assert "No calibration data" in result.stdout
+
+
+def test_calibration_guidance_with_confidence(cli_runner: CliRunner) -> None:
+    """Test guidance command with confidence value."""
+    result = cli_runner.invoke(app, ["calibration", "guidance", "auth", "--confidence", "0.75"])
+    assert result.exit_code == 0
+
+
+def test_calibration_all_profiles(cli_runner: CliRunner) -> None:
+    """Test listing all calibration profiles."""
+    result = cli_runner.invoke(app, ["calibration", "all"])
+    assert result.exit_code == 0
+
+
+def test_calibration_all_profiles_json(cli_runner: CliRunner) -> None:
+    """Test listing all calibration profiles in JSON."""
+    result = cli_runner.invoke(app, ["calibration", "all", "--format", "json"])
+    assert result.exit_code == 0

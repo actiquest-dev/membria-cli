@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Membria MCP Server</title>
+    <link rel="stylesheet" href="node_modules/xterm/css/xterm.css" />
+    <style>
+      :root {
+        --bg: #0f1115;
+        --card: #171c28;
+        --card-2: #1b2232;
+        --text: #e6e8ee;
+        --muted: #9aa3b2;
+        --accent: #4cc9f0;
+        --ok: #30c48d;
+        --warn: #f3a712;
+        --bad: #ef476f;
+        --border: rgba(255, 255, 255, 0.08);
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: "SF Pro Text", "SF Pro Display", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: radial-gradient(1200px 800px at 20% -10%, #1b2a36 0%, transparent 60%),
+          radial-gradient(1200px 800px at 120% 20%, #1a2136 0%, transparent 60%),
+          var(--bg);
+        color: var(--text);
+      }
+
+      header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .title { font-weight: 700; font-size: 18px; }
+      .subtitle { color: var(--muted); font-size: 12px; }
+
+      .container {
+        padding: 20px 24px 40px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        padding: 12px 24px 0;
+      }
+
+      .tab {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .tab.active {
+        color: var(--text);
+        border-color: rgba(76,201,240,0.4);
+        background: rgba(76,201,240,0.12);
+      }
+
+      .panel {
+        display: none;
+      }
+
+      .panel.active {
+        display: block;
+      }
+
+      .webview-wrap {
+        height: calc(100vh - 210px);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        background: #0b0f17;
+      }
+
+      .webview-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .webview-toolbar .hint {
+        margin: 0;
+      }
+
+      .card {
+        background: linear-gradient(180deg, var(--card), var(--card-2));
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .provider-title {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .status {
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+
+      .status.ok { color: #c4ffe8; border-color: rgba(48,196,141,0.4); background: rgba(48,196,141,0.15); }
+      .status.warn { color: #ffe9b3; border-color: rgba(243,167,18,0.4); background: rgba(243,167,18,0.12); }
+      .status.bad { color: #ffc1d1; border-color: rgba(239,71,111,0.4); background: rgba(239,71,111,0.12); }
+
+      .actions { display: flex; gap: 8px; align-items: center; }
+
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        background: linear-gradient(135deg, #2e9ad0, #38b9d3);
+        color: #071622;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+        background: linear-gradient(135deg, #2a3347, #323a52);
+        color: #7f8796;
+      }
+
+      .terminal {
+        height: 200px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 8px;
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(5, 8, 14, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 50;
+      }
+
+      .modal.open {
+        display: flex;
+      }
+
+      .modal-card {
+        width: min(1100px, 92vw);
+        height: min(720px, 86vh);
+        background: linear-gradient(180deg, var(--card), var(--card-2));
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .modal-title {
+        font-weight: 600;
+      }
+
+      .modal-body {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #0b0f17;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="title">Membria MCP Server</div>
+        <div class="subtitle">MCP connect · local clients</div>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="connect">MCP Connect</button>
+      <button class="tab" data-tab="auth">Providers & Auth</button>
+    </div>
+
+    <div class="container panel active" data-panel="connect">
+      <div class="card" data-provider="openai" data-command-id="openai">
+        <div class="card-header">
+          <div class="provider-title">OpenAI (Codex CLI)</div>
+          <div class="status warn" data-status>Not started</div>
+        </div>
+        <div class="actions">
+          <button data-action="start">Connect Codex CLI</button>
+        </div>
+        <div class="terminal" data-terminal></div>
+        <div class="hint">Command: codex mcp login membria</div>
+      </div>
+
+      <div class="card" data-provider="anthropic" data-command-id="anthropic">
+        <div class="card-header">
+          <div class="provider-title">Claude (Claude Code CLI)</div>
+          <div class="status warn" data-status>Not started</div>
+        </div>
+        <div class="actions">
+          <button data-action="start">Connect Claude CLI</button>
+        </div>
+        <div class="terminal" data-terminal></div>
+        <div class="hint">Command: claude mcp add-json membria '{"type":"stdio","command":"python","args":["/Users/miguelaprossine/membria-cli/src/membria/mcp_server.py"]}'</div>
+      </div>
+
+      <div class="card" data-provider="kilo" data-command-id="kilo">
+        <div class="card-header">
+          <div class="provider-title">Kilo Code CLI</div>
+          <div class="status warn" data-status>Not started</div>
+        </div>
+        <div class="actions">
+          <button data-action="start">Connect Kilo CLI</button>
+        </div>
+        <div class="terminal" data-terminal></div>
+        <div class="hint">Command: kilo mcp connect membria</div>
+      </div>
+    </div>
+
+    <div class="modal" id="auth-modal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title">Complete Login</div>
+          <div class="actions">
+            <button id="auth-modal-close">Close</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <webview id="auth-webview" style="width:100%;height:100%;"></webview>
+        </div>
+      </div>
+    </div>
+
+    <div class="container panel" data-panel="auth">
+      <div class="card">
+        <div class="card-header">
+          <div class="provider-title">Providers & OAuth</div>
+        </div>
+        <div class="webview-toolbar">
+          <button data-action="reload-webview">Reload</button>
+          <div class="hint">Make sure `mcp-front` is running on http://localhost:8080</div>
+        </div>
+        <div class="webview-wrap">
+          <webview id="providers-webview" partition="persist:membria-mcp" src="http://localhost:8080/my/tokens?auth=1" style="width:100%;height:100%;"></webview>
+        </div>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

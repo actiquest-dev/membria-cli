@@ -9,6 +9,8 @@ from statistics import mean
 
 from membria.config import ConfigManager
 from membria.graph import GraphClient
+from membria.calibration_updater import CalibrationUpdater
+from membria.calibration_models import TeamCalibration
 
 calibration_app = typer.Typer(help="Analyze decision confidence calibration")
 console = Console()
@@ -184,6 +186,138 @@ def show(
                 console.print(f"\n[dim]Analysis for module: {domain}[/dim]")
 
         graph.disconnect()
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
+
+
+@calibration_app.command("profile")
+def profile(
+    domain: str = typer.Argument(..., help="Decision domain (e.g., 'database', 'auth', 'api')"),
+    format: str = typer.Option("table", "--format", "-f", help="Output format (table, json)"),
+) -> None:
+    """Show calibration profile for a domain."""
+    try:
+        updater = CalibrationUpdater()
+
+        # Get all profiles
+        profiles = updater.get_all_profiles()
+
+        if domain not in profiles:
+            console.print(f"[dim]No calibration data for domain '{domain}'[/dim]")
+            return
+
+        profile = profiles[domain]
+
+        if format == "json":
+            console.print(json.dumps(profile, indent=2))
+        else:
+            # Table format
+            table = Table(title=f"Calibration Profile: {domain}")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+
+            table.add_row("Sample Size", str(profile.get("sample_size", 0)))
+            table.add_row("Success Rate", f"{profile.get('mean_success_rate', 0):.3f}")
+            table.add_row("Variance", f"{profile.get('variance', 0):.6f}")
+            table.add_row("Alpha (successes)", f"{profile.get('alpha', 0):.1f}")
+            table.add_row("Beta (failures)", f"{profile.get('beta', 0):.1f}")
+            table.add_row("Trend", profile.get("trend", "unknown"))
+            table.add_row("Last Updated", profile.get("last_updated", "unknown")[:19])
+
+            console.print(table)
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
+
+
+@calibration_app.command("guidance")
+def guidance(
+    domain: str = typer.Argument(..., help="Decision domain"),
+    confidence: Optional[float] = typer.Option(None, "--confidence", "-c", help="Your estimated confidence (0-1)"),
+    format: str = typer.Option("table", "--format", "-f", help="Output format (table, json)"),
+) -> None:
+    """Get confidence adjustment guidance for a domain."""
+    try:
+        updater = CalibrationUpdater()
+        guidance_data = updater.get_confidence_guidance(domain, confidence)
+
+        if format == "json":
+            # Convert tuple to list for JSON serialization
+            if "credible_interval_95" in guidance_data:
+                lower, upper = guidance_data["credible_interval_95"]
+                guidance_data["credible_interval_95"] = [lower, upper]
+            console.print(json.dumps(guidance_data, indent=2))
+        else:
+            # Table format
+            if guidance_data["status"] == "no_data":
+                console.print(f"[dim]No calibration data for domain '{domain}'[/dim]")
+                return
+
+            table = Table(title=f"Confidence Guidance: {domain}")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+
+            table.add_row("Sample Size", str(guidance_data.get("sample_size", 0)))
+            table.add_row("Actual Success Rate", f"{guidance_data.get('actual_success_rate', 0):.3f}")
+            table.add_row("Your Confidence", f"{guidance_data.get('estimated_confidence', 'unknown')}")
+            table.add_row("Confidence Gap", f"{guidance_data.get('confidence_gap', 0):+.3f}")
+            table.add_row("Adjustment", f"{guidance_data.get('adjustment', 0):+.3f}")
+            table.add_row("Trend", guidance_data.get("trend", "unknown"))
+
+            credible = guidance_data.get("credible_interval_95", (0, 1))
+            table.add_row("95% Credible Interval", f"[{credible[0]:.3f}, {credible[1]:.3f}]")
+
+            console.print(table)
+
+            # Recommendation
+            rec = guidance_data.get("recommendation")
+            if rec:
+                console.print(f"\n[bold]Recommendation[/bold]")
+                console.print(f"[yellow]{rec}[/yellow]")
+
+    except Exception as e:
+        console.print(f"[bold red]✗[/bold red] Error: {e}")
+        raise typer.Exit(code=1)
+
+
+@calibration_app.command("all")
+def all_profiles(
+    format: str = typer.Option("table", "--format", "-f", help="Output format (table, json)"),
+) -> None:
+    """Show calibration profiles for all domains."""
+    try:
+        updater = CalibrationUpdater()
+        profiles = updater.get_all_profiles()
+
+        if not profiles:
+            console.print("[dim]No calibration data collected yet[/dim]")
+            return
+
+        if format == "json":
+            console.print(json.dumps(profiles, indent=2))
+        else:
+            # Table format
+            table = Table(title="Calibration Profiles (All Domains)")
+            table.add_column("Domain", style="cyan")
+            table.add_column("Sample", style="white")
+            table.add_column("Success Rate", style="green")
+            table.add_column("Trend", style="yellow")
+            table.add_column("Variance", style="magenta")
+
+            for domain in sorted(profiles.keys()):
+                profile = profiles[domain]
+                table.add_row(
+                    domain,
+                    str(profile.get("sample_size", 0)),
+                    f"{profile.get('mean_success_rate', 0):.3f}",
+                    profile.get("trend", "unknown"),
+                    f"{profile.get('variance', 0):.6f}",
+                )
+
+            console.print(table)
 
     except Exception as e:
         console.print(f"[bold red]✗[/bold red] Error: {e}")
