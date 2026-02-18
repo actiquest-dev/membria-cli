@@ -50,6 +50,17 @@
 ### Обзор
 - **[GUIDES_INDEX.md](GUIDES_INDEX.md)** - Индекс всех документов
 
+### Architecture & Design (2026-02-18 Updated)
+- **[SQUAD_ROLES_SETUP.md](SQUAD_ROLES_SETUP.md)** - Squad roles CLI management, graph-backed
+- **[COUNCIL_SQUAD_INTEGRATION.md](COUNCIL_SQUAD_INTEGRATION.md)** - Council vs Squad architecture
+- **[WHITESPACE_AUDIT_FIXES.md](WHITESPACE_AUDIT_FIXES.md)** - Bug audit report (23 bugs identified, 10 fixed)
+- **[ARCHITECTURE_INVENTORY.md](ARCHITECTURE_INVENTORY.md)** - Complete inventory of all changes this session
+
+### Security Updates (2026-02-18)
+- **Cypher Injection Fixed** - All 18 methods now parameterized (graph.py + graph_schema.py)
+- **Prompt Injection Mitigated** - red_team_audit() sanitized
+- **Real Calibration** - CalibrationUpdater integrated in daemon
+
 ---
 
 ## 🔒 Security & Data Integrity (NEW)
@@ -310,6 +321,7 @@ Claude: [Использует validate_plan]
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| 1.0.1 | 2026-02-18 | CRITICAL bugs fixed (5/5), HIGH (5/8), Cypher injection security hardening, Squad integration |
 | 1.0.0 | 2026-02-11 | Начальная версия, все компоненты готовы |
 
 ---
@@ -327,6 +339,6 @@ Claude: [Использует validate_plan]
 
 ---
 
-**Создано:** 2026-02-11
-**Статус:** ✅ Полная документация готова
-**Версия:** 1.0.0
+**Обновлено:** 2026-02-18
+**Статус:** ✅ Полная документация (+ архитектурная инвентаризация)
+**Версия:** 1.0.1
