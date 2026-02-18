@@ -121,36 +121,62 @@ class GraphClient:
             role_id = escape_string(sanitize_text(decision.role_id or "", max_len=80)) if decision.role_id else None
             assignment_id = escape_string(sanitize_text(decision.assignment_id or "", max_len=80)) if decision.assignment_id else None
 
-            query = f"""
-            CREATE (d:Decision {{
-                id: "{decision.decision_id}",
-                statement: "{statement}",
-                alternatives: {json.dumps(alternatives)},
-                confidence: {decision.confidence},
-                module: "{escape_string(sanitize_text(decision.module, max_len=80))}",
-                created_at: {int(decision.created_at.timestamp())},
-                created_by: "{created_by}",
-                role_id: {"null" if not role_id else f'"{role_id}"'},
-                assignment_id: {"null" if not assignment_id else f'"{assignment_id}"'},
-                tenant_id: "{self._namespace['tenant_id']}",
-                team_id: "{self._namespace['team_id']}",
-                project_id: "{self._namespace['project_id']}",
-                outcome: {"null" if decision.outcome is None else f'"{escape_string(decision.outcome)}"'},
-                resolved_at: {"null" if decision.resolved_at is None else int(decision.resolved_at.timestamp())},
-                actual_success_rate: {"null" if decision.actual_success_rate is None else decision.actual_success_rate},
-                engram_id: {"null" if decision.engram_id is None else f'"{escape_string(decision.engram_id)}"'},
-                commit_sha: {"null" if decision.commit_sha is None else f'"{escape_string(decision.commit_sha)}"'},
-                memory_type: {"null" if decision.memory_type is None else f'"{escape_string(sanitize_text(decision.memory_type, max_len=32))}"'},
-                memory_subject: {"null" if decision.memory_subject is None else f'"{escape_string(sanitize_text(decision.memory_subject, max_len=32))}"'},
-                ttl_days: {"null" if decision.ttl_days is None else decision.ttl_days},
-                last_verified_at: {"null" if decision.last_verified_at is None else int(decision.last_verified_at.timestamp())},
-                is_active: {"true" if decision.is_active else "false"},
-                deprecated_reason: {"null" if decision.deprecated_reason is None else f'"{escape_string(sanitize_text(decision.deprecated_reason, max_len=200))}"'},
-                source: {"null" if decision.source is None else f'"{escape_string(sanitize_text(decision.source, max_len=80))}"'}
-            }})
+            query = """
+            CREATE (d:Decision {
+                id: $id,
+                statement: $statement,
+                alternatives: $alternatives,
+                confidence: $confidence,
+                module: $module,
+                created_at: $created_at,
+                created_by: $created_by,
+                role_id: $role_id,
+                assignment_id: $assignment_id,
+                tenant_id: $tenant_id,
+                team_id: $team_id,
+                project_id: $project_id,
+                outcome: $outcome,
+                resolved_at: $resolved_at,
+                actual_success_rate: $actual_success_rate,
+                engram_id: $engram_id,
+                commit_sha: $commit_sha,
+                memory_type: $memory_type,
+                memory_subject: $memory_subject,
+                ttl_days: $ttl_days,
+                last_verified_at: $last_verified_at,
+                is_active: $is_active,
+                deprecated_reason: $deprecated_reason,
+                source: $source
+            })
             RETURN d
             """
-            self.graph.query(query)
+            params = {
+                "id": decision.decision_id,
+                "statement": statement,
+                "alternatives": json.dumps(alternatives),
+                "confidence": decision.confidence,
+                "module": escape_string(sanitize_text(decision.module, max_len=80)),
+                "created_at": int(decision.created_at.timestamp()),
+                "created_by": created_by,
+                "role_id": role_id,
+                "assignment_id": assignment_id,
+                "tenant_id": self._namespace['tenant_id'],
+                "team_id": self._namespace['team_id'],
+                "project_id": self._namespace['project_id'],
+                "outcome": escape_string(decision.outcome) if decision.outcome is not None else None,
+                "resolved_at": int(decision.resolved_at.timestamp()) if decision.resolved_at is not None else None,
+                "actual_success_rate": decision.actual_success_rate,
+                "engram_id": escape_string(decision.engram_id) if decision.engram_id is not None else None,
+                "commit_sha": escape_string(decision.commit_sha) if decision.commit_sha is not None else None,
+                "memory_type": escape_string(sanitize_text(decision.memory_type, max_len=32)) if decision.memory_type is not None else None,
+                "memory_subject": escape_string(sanitize_text(decision.memory_subject, max_len=32)) if decision.memory_subject is not None else None,
+                "ttl_days": decision.ttl_days,
+                "last_verified_at": int(decision.last_verified_at.timestamp()) if decision.last_verified_at is not None else None,
+                "is_active": decision.is_active,
+                "deprecated_reason": escape_string(sanitize_text(decision.deprecated_reason, max_len=200)) if decision.deprecated_reason is not None else None,
+                "source": escape_string(sanitize_text(decision.source, max_len=80)) if decision.source is not None else None
+            }
+            self.graph.query(query, params)
             logger.info(f"Added decision {decision.decision_id}")
             return True
         except Exception as e:
@@ -164,26 +190,42 @@ class GraphClient:
             return False
 
         try:
-            query = f"""
-            CREATE (e:Engram {{
-                id: "{engram.engram_id}",
-                session_id: "{escape_string(engram.session_id)}",
-                commit_sha: "{escape_string(engram.commit_sha)}",
-                branch: "{escape_string(engram.branch)}",
-                created_at: {int(engram.timestamp.timestamp())},
-                session_duration_sec: {engram.agent.session_duration_sec},
-                agent_type: "{escape_string(engram.agent.type)}",
-                agent_model: "{escape_string(engram.agent.model)}",
-                decisions_extracted: {len(engram.decisions_extracted)},
-                files_changed: {len(engram.files_changed)},
-                total_tokens: {engram.agent.total_tokens},
-                tenant_id: "{self._namespace['tenant_id']}",
-                team_id: "{self._namespace['team_id']}",
-                project_id: "{self._namespace['project_id']}"
-            }})
+            query = """
+            CREATE (e:Engram {
+                id: $id,
+                session_id: $session_id,
+                commit_sha: $commit_sha,
+                branch: $branch,
+                created_at: $created_at,
+                session_duration_sec: $session_duration_sec,
+                agent_type: $agent_type,
+                agent_model: $agent_model,
+                decisions_extracted: $decisions_extracted,
+                files_changed: $files_changed,
+                total_tokens: $total_tokens,
+                tenant_id: $tenant_id,
+                team_id: $team_id,
+                project_id: $project_id
+            })
             RETURN e
             """
-            self.graph.query(query)
+            params = {
+                "id": engram.engram_id,
+                "session_id": escape_string(engram.session_id),
+                "commit_sha": escape_string(engram.commit_sha),
+                "branch": escape_string(engram.branch),
+                "created_at": int(engram.timestamp.timestamp()),
+                "session_duration_sec": engram.agent.session_duration_sec,
+                "agent_type": escape_string(engram.agent.type),
+                "agent_model": escape_string(engram.agent.model),
+                "decisions_extracted": len(engram.decisions_extracted),
+                "files_changed": len(engram.files_changed),
+                "total_tokens": engram.agent.total_tokens,
+                "tenant_id": self._namespace['tenant_id'],
+                "team_id": self._namespace['team_id'],
+                "project_id": self._namespace['project_id']
+            }
+            self.graph.query(query, params)
             logger.info(f"Added engram {engram.engram_id}")
             return True
         except Exception as e:
@@ -197,26 +239,42 @@ class GraphClient:
             return False
 
         try:
-            query = f"""
-            CREATE (c:CodeChange {{
-                id: "{change.change_id}",
-                commit_sha: "{escape_string(change.commit_sha)}",
-                files_changed: {json.dumps(change.files_changed)},
-                timestamp: {int(change.timestamp.timestamp())},
-                author: "{escape_string(change.author)}",
-                decision_id: {"null" if change.decision_id is None else f'"{escape_string(change.decision_id)}"'},
-                outcome: {"null" if change.outcome is None else f'"{escape_string(change.outcome)}"'},
-                reverted_by: {"null" if change.reverted_by is None else f'"{escape_string(change.reverted_by)}"'},
-                days_to_revert: {"null" if change.days_to_revert is None else change.days_to_revert},
-                lines_added: {change.lines_added},
-                lines_removed: {change.lines_removed},
-                tenant_id: "{self._namespace['tenant_id']}",
-                team_id: "{self._namespace['team_id']}",
-                project_id: "{self._namespace['project_id']}"
-            }})
+            query = """
+            CREATE (c:CodeChange {
+                id: $id,
+                commit_sha: $commit_sha,
+                files_changed: $files_changed,
+                timestamp: $timestamp,
+                author: $author,
+                decision_id: $decision_id,
+                outcome: $outcome,
+                reverted_by: $reverted_by,
+                days_to_revert: $days_to_revert,
+                lines_added: $lines_added,
+                lines_removed: $lines_removed,
+                tenant_id: $tenant_id,
+                team_id: $team_id,
+                project_id: $project_id
+            })
             RETURN c
             """
-            self.graph.query(query)
+            params = {
+                "id": change.change_id,
+                "commit_sha": escape_string(change.commit_sha),
+                "files_changed": json.dumps(change.files_changed),
+                "timestamp": int(change.timestamp.timestamp()),
+                "author": escape_string(change.author),
+                "decision_id": escape_string(change.decision_id) if change.decision_id is not None else None,
+                "outcome": escape_string(change.outcome) if change.outcome is not None else None,
+                "reverted_by": escape_string(change.reverted_by) if change.reverted_by is not None else None,
+                "days_to_revert": change.days_to_revert,
+                "lines_added": change.lines_added,
+                "lines_removed": change.lines_removed,
+                "tenant_id": self._namespace['tenant_id'],
+                "team_id": self._namespace['team_id'],
+                "project_id": self._namespace['project_id']
+            }
+            self.graph.query(query, params)
             logger.info(f"Added code change {change.change_id}")
             return True
         except Exception as e:
@@ -230,26 +288,42 @@ class GraphClient:
             return False
 
         try:
-            query = f"""
-            CREATE (o:Outcome {{
-                id: "{outcome.outcome_id}",
-                status: "{escape_string(outcome.status)}",
-                evidence: "{escape_string(outcome.evidence)}",
-                measured_at: {int(outcome.measured_at.timestamp())},
-                performance_impact: {outcome.performance_impact},
-                reliability: {outcome.reliability},
-                maintenance_cost: {outcome.maintenance_cost},
-                code_change_id: {"null" if outcome.code_change_id is None else f'"{escape_string(outcome.code_change_id)}"'},
-                tenant_id: "{self._namespace['tenant_id']}",
-                team_id: "{self._namespace['team_id']}",
-                project_id: "{self._namespace['project_id']}",
-                ttl_days: {"null" if outcome.ttl_days is None else outcome.ttl_days},
-                is_active: {"true" if outcome.is_active else "false"},
-                deprecated_reason: {"null" if outcome.deprecated_reason is None else f'"{escape_string(outcome.deprecated_reason)}"'}
-            }})
+            query = """
+            CREATE (o:Outcome {
+                id: $id,
+                status: $status,
+                evidence: $evidence,
+                measured_at: $measured_at,
+                performance_impact: $performance_impact,
+                reliability: $reliability,
+                maintenance_cost: $maintenance_cost,
+                code_change_id: $code_change_id,
+                tenant_id: $tenant_id,
+                team_id: $team_id,
+                project_id: $project_id,
+                ttl_days: $ttl_days,
+                is_active: $is_active,
+                deprecated_reason: $deprecated_reason
+            })
             RETURN o
             """
-            self.graph.query(query)
+            params = {
+                "id": outcome.outcome_id,
+                "status": escape_string(outcome.status),
+                "evidence": escape_string(outcome.evidence),
+                "measured_at": int(outcome.measured_at.timestamp()),
+                "performance_impact": outcome.performance_impact,
+                "reliability": outcome.reliability,
+                "maintenance_cost": outcome.maintenance_cost,
+                "code_change_id": escape_string(outcome.code_change_id) if outcome.code_change_id is not None else None,
+                "tenant_id": self._namespace['tenant_id'],
+                "team_id": self._namespace['team_id'],
+                "project_id": self._namespace['project_id'],
+                "ttl_days": outcome.ttl_days,
+                "is_active": outcome.is_active,
+                "deprecated_reason": escape_string(outcome.deprecated_reason) if outcome.deprecated_reason is not None else None
+            }
+            self.graph.query(query, params)
             logger.info(f"Added outcome {outcome.outcome_id}")
             return True
         except Exception as e:
@@ -263,32 +337,54 @@ class GraphClient:
             return False
 
         try:
-            query = f"""
-            CREATE (nk:NegativeKnowledge {{
-                id: "{nk.nk_id}",
-                hypothesis: "{escape_string(sanitize_text(nk.hypothesis, max_len=400))}",
-                conclusion: "{escape_string(sanitize_text(nk.conclusion, max_len=400))}",
-                evidence: "{escape_string(sanitize_text(nk.evidence, max_len=800))}",
-                domain: "{escape_string(sanitize_text(nk.domain, max_len=80))}",
-                severity: "{escape_string(sanitize_text(nk.severity, max_len=20))}",
-                discovered_at: {int(nk.discovered_at.timestamp())},
-                expires_at: {"null" if nk.expires_at is None else int(nk.expires_at.timestamp())},
-                blocks_pattern: {"null" if nk.blocks_pattern is None else f'"{escape_string(sanitize_text(nk.blocks_pattern, max_len=120))}"'},
-                recommendation: "{escape_string(sanitize_text(nk.recommendation, max_len=400))}",
-                source: "{escape_string(sanitize_text(nk.source, max_len=80))}",
-                tenant_id: "{self._namespace['tenant_id']}",
-                team_id: "{self._namespace['team_id']}",
-                project_id: "{self._namespace['project_id']}",
-                memory_type: {"null" if nk.memory_type is None else f'"{escape_string(sanitize_text(nk.memory_type, max_len=32))}"'},
-                memory_subject: {"null" if nk.memory_subject is None else f'"{escape_string(sanitize_text(nk.memory_subject, max_len=32))}"'},
-                ttl_days: {"null" if nk.ttl_days is None else nk.ttl_days},
-                last_verified_at: {"null" if nk.last_verified_at is None else int(nk.last_verified_at.timestamp())},
-                is_active: {"true" if nk.is_active else "false"},
-                deprecated_reason: {"null" if nk.deprecated_reason is None else f'"{escape_string(sanitize_text(nk.deprecated_reason, max_len=200))}"'}
-            }})
+            query = """
+            CREATE (nk:NegativeKnowledge {
+                id: $id,
+                hypothesis: $hypothesis,
+                conclusion: $conclusion,
+                evidence: $evidence,
+                domain: $domain,
+                severity: $severity,
+                discovered_at: $discovered_at,
+                expires_at: $expires_at,
+                blocks_pattern: $blocks_pattern,
+                recommendation: $recommendation,
+                source: $source,
+                tenant_id: $tenant_id,
+                team_id: $team_id,
+                project_id: $project_id,
+                memory_type: $memory_type,
+                memory_subject: $memory_subject,
+                ttl_days: $ttl_days,
+                last_verified_at: $last_verified_at,
+                is_active: $is_active,
+                deprecated_reason: $deprecated_reason
+            })
             RETURN nk
             """
-            self.graph.query(query)
+            params = {
+                "id": nk.nk_id,
+                "hypothesis": escape_string(sanitize_text(nk.hypothesis, max_len=400)),
+                "conclusion": escape_string(sanitize_text(nk.conclusion, max_len=400)),
+                "evidence": escape_string(sanitize_text(nk.evidence, max_len=800)),
+                "domain": escape_string(sanitize_text(nk.domain, max_len=80)),
+                "severity": escape_string(sanitize_text(nk.severity, max_len=20)),
+                "discovered_at": int(nk.discovered_at.timestamp()),
+                "expires_at": int(nk.expires_at.timestamp()) if nk.expires_at is not None else None,
+                "blocks_pattern": escape_string(sanitize_text(nk.blocks_pattern, max_len=120)) if nk.blocks_pattern is not None else None,
+                "recommendation": escape_string(sanitize_text(nk.recommendation, max_len=400)),
+                "source": escape_string(sanitize_text(nk.source, max_len=80)),
+                "tenant_id": self._namespace['tenant_id'],
+                "team_id": self._namespace['team_id'],
+                "project_id": self._namespace['project_id'],
+                "memory_type": escape_string(sanitize_text(nk.memory_type, max_len=32)) if nk.memory_type is not None else None,
+                "memory_subject": escape_string(sanitize_text(nk.memory_subject, max_len=32)) if nk.memory_subject is not None else None,
+                "ttl_days": nk.ttl_days,
+                "last_verified_at": int(nk.last_verified_at.timestamp()) if nk.last_verified_at is not None else None,
+                "is_active": nk.is_active,
+                "deprecated_reason": escape_string(sanitize_text(nk.deprecated_reason, max_len=200)) if nk.deprecated_reason is not None else None
+            }
+            self.graph.query(query, params)
             logger.info(f"Added negative knowledge {nk.nk_id}")
             return True
         except Exception as e:
@@ -378,31 +474,52 @@ class GraphClient:
             return False
 
         try:
-            query = f"""
-            CREATE (ap:AntiPattern {{
-                id: "{ap.pattern_id}",
-                name: "{escape_string(ap.name)}",
-                category: "{escape_string(ap.category)}",
-                severity: "{escape_string(ap.severity)}",
-                repos_affected: {ap.repos_affected},
-                occurrence_count: {ap.occurrence_count},
-                removal_rate: {ap.removal_rate},
-                avg_days_to_removal: {ap.avg_days_to_removal},
-                keywords: {json.dumps(ap.keywords)},
-                regex_pattern: "{escape_string(ap.regex_pattern)}",
-                example_bad: "{escape_string(ap.example_bad)}",
-                example_good: "{escape_string(ap.example_good)}",
-                first_seen: {int(ap.first_seen.timestamp())},
-                found_by: "{escape_string(ap.found_by)}",
-                source: "{escape_string(ap.source)}",
-                recommendation: "{escape_string(ap.recommendation)}",
-                tenant_id: "{self._namespace['tenant_id']}",
-                team_id: "{self._namespace['team_id']}",
-                project_id: "{self._namespace['project_id']}"
-            }})
+            query = """
+            CREATE (ap:AntiPattern {
+                id: $id,
+                name: $name,
+                category: $category,
+                severity: $severity,
+                repos_affected: $repos_affected,
+                occurrence_count: $occurrence_count,
+                removal_rate: $removal_rate,
+                avg_days_to_removal: $avg_days_to_removal,
+                keywords: $keywords,
+                regex_pattern: $regex_pattern,
+                example_bad: $example_bad,
+                example_good: $example_good,
+                first_seen: $first_seen,
+                found_by: $found_by,
+                source: $source,
+                recommendation: $recommendation,
+                tenant_id: $tenant_id,
+                team_id: $team_id,
+                project_id: $project_id
+            })
             RETURN ap
             """
-            self.graph.query(query)
+            params = {
+                "id": ap.pattern_id,
+                "name": escape_string(ap.name),
+                "category": escape_string(ap.category),
+                "severity": escape_string(ap.severity),
+                "repos_affected": ap.repos_affected,
+                "occurrence_count": ap.occurrence_count,
+                "removal_rate": ap.removal_rate,
+                "avg_days_to_removal": ap.avg_days_to_removal,
+                "keywords": json.dumps(ap.keywords),
+                "regex_pattern": escape_string(ap.regex_pattern),
+                "example_bad": escape_string(ap.example_bad),
+                "example_good": escape_string(ap.example_good),
+                "first_seen": int(ap.first_seen.timestamp()),
+                "found_by": escape_string(ap.found_by),
+                "source": escape_string(ap.source),
+                "recommendation": escape_string(ap.recommendation),
+                "tenant_id": self._namespace['tenant_id'],
+                "team_id": self._namespace['team_id'],
+                "project_id": self._namespace['project_id']
+            }
+            self.graph.query(query, params)
             logger.info(f"Added antipattern {ap.pattern_id}")
             return True
         except Exception as e:
@@ -1690,27 +1807,21 @@ class GraphClient:
 
         try:
             properties = properties or {}
-            props_str = ""
-            if properties:
-                prop_items = []
-                for key, value in properties.items():
-                    if isinstance(value, str):
-                        prop_items.append(f'{key}: "{escape_string(value)}"')
-                    elif isinstance(value, (int, float)):
-                        prop_items.append(f'{key}: {value}')
-                    elif isinstance(value, bool):
-                        prop_items.append(f'{key}: {str(value).lower()}')
-                    else:
-                        prop_items.append(f'{key}: {json.dumps(value)}')
-                props_str = f" {{{', '.join(prop_items)}}}"
-
+            
             query = f"""
-            MATCH (from:{from_label} {{id: "{escape_string(from_node_id)}"}}),
-                  (to:{to_label} {{id: "{escape_string(to_node_id)}"}})
-            CREATE (from)-[r:{rel_type}{props_str}]->(to)
+            MATCH (from:{from_label} {{id: $from_id}}),
+                  (to:{to_label} {{id: $to_id}})
+            CREATE (from)-[r:{rel_type} $props]->(to)
             RETURN r
             """
-            self.graph.query(query)
+            
+            params = {
+                "from_id": escape_string(from_node_id),
+                "to_id": escape_string(to_node_id),
+                "props": properties
+            }
+            
+            self.graph.query(query, params)
             logger.info(f"Created {rel_type} relationship {from_node_id} -> {to_node_id}")
             return True
         except Exception as e:
