@@ -350,13 +350,20 @@ class SidePanel(Static):
         now = time.time()
         last = getattr(self, "_mcp_front_last_fetch", 0.0)
         cache = getattr(self, "_mcp_front_cache", None)
-        if cache is not None and (now - last) < 30:
-            return cache, getattr(self, "_mcp_front_last_error", "")
+        last_error = getattr(self, "_mcp_front_last_error", "")
+
+        # If we have a cache AND no error AND not expired, return it
+        if cache is not None and not last_error and (now - last) < 30:
+            return cache, ""
+
+        # If we have an error (timeout/failure), retry more aggressively (5 second window instead of 30)
+        if last_error and (now - last) < 5:
+            return cache or [], last_error
 
         # Non-blocking fetch to avoid freezing input
         inflight = getattr(self, "_mcp_front_fetch_inflight", False)
         if inflight:
-            return cache or [], getattr(self, "_mcp_front_last_error", "fetching")
+            return cache or [], last_error or "fetching"
 
         def _fetch():
             try:
@@ -381,7 +388,7 @@ class SidePanel(Static):
                 last_err = ""
                 for url in urls:
                     try:
-                        with urllib.request.urlopen(url, timeout=3.0) as resp:
+                        with urllib.request.urlopen(url, timeout=5.0) as resp:
                             html = resp.read().decode("utf-8", "ignore")
                             last_err = ""
                             break
@@ -1904,7 +1911,7 @@ class MembriaApp(App):
             try:
                 import urllib.request
                 base = getattr(mcp_front_cfg, "base_url", "http://localhost:8080") if mcp_front_cfg else "http://localhost:8080"
-                urllib.request.urlopen(f"{base.rstrip('/')}/api/providers", timeout=3.0)
+                urllib.request.urlopen(f"{base.rstrip('/')}/api/providers", timeout=5.0)
                 return
             except Exception:
                 pass
@@ -1959,7 +1966,9 @@ class MembriaApp(App):
             try:
                 mcp_front, mcp_front_err = panel._get_mcp_front_providers()
                 providers_line = ""
+
                 if mcp_front:
+                    # Successfully got providers - display with status indicators
                     rendered = []
                     down = []
                     for p in mcp_front:
@@ -1974,22 +1983,40 @@ class MembriaApp(App):
                     down_suffix = f" [dim](down: {', '.join(down)})[/dim]" if down else ""
                     providers_line = f"[dim]Providers:[/dim] [#88C0D0]{len(mcp_front)}[/#88C0D0]{down_suffix}"
                 else:
+                    # No providers - determine why and show appropriate message
                     if mcp_front_err:
-                        short_err = mcp_front_err.replace("\n", " ")[:40]
-                        providers_line = f"[dim]Providers:[/dim] [dim]unknown[/dim] [dim]{short_err}[/dim]"
+                        # Show error with context
+                        if "timed out" in mcp_front_err.lower() or "timeout" in mcp_front_err.lower():
+                            providers_line = "[dim]Providers:[/dim] [#BF616A]timeout[/#BF616A] [dim](retrying...)[/dim]"
+                        elif "not reachable" in mcp_front_err.lower():
+                            providers_line = "[dim]Providers:[/dim] [#BF616A]unreachable[/#BF616A]"
+                        else:
+                            short_err = mcp_front_err.replace("\n", " ")[:35]
+                            providers_line = f"[dim]Providers:[/dim] [#BF616A]error[/#BF616A] [dim]{short_err}[/dim]"
                     else:
-                        providers_line = "[dim]Providers:[/dim] [dim]unknown[/dim]"
+                        # No error message but also no providers
+                        providers_line = "[dim]Providers:[/dim] [dim]connecting...[/dim]"
 
                 # Cache the result and update UI
                 setattr(self, "_cached_providers_line", providers_line)
                 def _update_ui():
                     try:
+                        # Update both the session panel and top-info bar
+                        self._refresh_top_info(panel)
                         panel._refresh_session()
                     except Exception:
                         pass
                 self.call_from_thread(_update_ui)
-            except Exception:
-                pass
+            except Exception as e:
+                # Fallback error display
+                providers_line = "[dim]Providers:[/dim] [dim]error[/dim]"
+                setattr(self, "_cached_providers_line", providers_line)
+                try:
+                    def _update_ui():
+                        self._refresh_top_info(panel)
+                    self.call_from_thread(_update_ui)
+                except Exception:
+                    pass
 
         import threading
         threading.Thread(target=_fetch_providers, daemon=True).start()
