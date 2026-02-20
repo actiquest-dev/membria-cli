@@ -2001,7 +2001,12 @@ class MembriaApp(App):
             team_id = getattr(cfg, "team_id", "default") if cfg else "default"
             mode = "pipeline"
             try:
-                mode = cfg.get("orchestration", {}).get("mode", "pipeline") if cfg else "pipeline"
+                # Try both dict and object access patterns
+                orch_cfg = getattr(cfg, "orchestration", None) if cfg else None
+                if isinstance(orch_cfg, dict):
+                    mode = orch_cfg.get("mode", "pipeline")
+                elif orch_cfg:
+                    mode = getattr(orch_cfg, "mode", "pipeline")
             except Exception:
                 pass
             ws_id = getattr(self, "_active_ws_id", "") or ""
