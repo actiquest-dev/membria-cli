@@ -381,7 +381,7 @@ class SidePanel(Static):
                 last_err = ""
                 for url in urls:
                     try:
-                        with urllib.request.urlopen(url, timeout=1.0) as resp:
+                        with urllib.request.urlopen(url, timeout=3.0) as resp:
                             html = resp.read().decode("utf-8", "ignore")
                             last_err = ""
                             break
@@ -1904,7 +1904,7 @@ class MembriaApp(App):
             try:
                 import urllib.request
                 base = getattr(mcp_front_cfg, "base_url", "http://localhost:8080") if mcp_front_cfg else "http://localhost:8080"
-                urllib.request.urlopen(f"{base.rstrip('/')}/api/providers", timeout=1.0)
+                urllib.request.urlopen(f"{base.rstrip('/')}/api/providers", timeout=3.0)
                 return
             except Exception:
                 pass
