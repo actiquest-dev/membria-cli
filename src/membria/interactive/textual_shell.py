@@ -245,8 +245,8 @@ class SidePanel(Static):
             pass
 
     def _refresh_session(self) -> None:
+        """Update session panel — MCP status and decisions. Provider fetch happens async."""
         mcp_line = ""
-        providers_line = ""
         try:
             from membria.process_manager import ProcessManager
             cfg = None
@@ -301,51 +301,17 @@ class SidePanel(Static):
             mcp_line = f"[dim]MCP:[/dim]       {icon} [dim]{port}[/dim] {pid_text}".rstrip()
         except Exception:
             mcp_line = "[dim]MCP:[/dim]       [#BF616A]✗[/#BF616A]"
-        try:
-            mcp_front, mcp_front_err = self._get_mcp_front_providers()
-            if mcp_front:
-                rendered = []
-                down = []
-                for p in mcp_front:
-                    name = p.get("display_name") or p.get("name") or "unknown"
-                    ok = p.get("ping_ok")
-                    dot = "[#A3BE8C]●[/#A3BE8C]" if ok else "[#BF616A]●[/#BF616A]"
-                    msg = p.get("ping_message") or ""
-                    extra = f" [dim]({msg})[/dim]" if msg else ""
-                    rendered.append(f"{dot} {name}{extra}")
-                    if not ok:
-                        down.append(name)
-                names = ", ".join(rendered)
-                down_suffix = f" [dim](down: {', '.join(down)})[/dim]" if down else ""
-                providers_line = f"[dim]Providers:[/dim] [#88C0D0]{len(mcp_front)}[/#88C0D0]{down_suffix}"
-                providers_details = "\n".join(rendered)
-            else:
-                if mcp_front_err:
-                    short_err = mcp_front_err.replace("\n", " ")[:40]
-                    providers_line = (
-                        "[dim]Providers:[/dim] [dim]unknown (MCP Front)[/dim] "
-                        f"[dim]{short_err}[/dim]"
-                    )
-                    providers_details = ""
-                    if not getattr(self, "_mcp_front_error_reported", False):
-                        try:
-                            self._append_md(f"[#BF616A]MCP Front unreachable:[/#BF616A] {mcp_front_err}")
-                        except Exception:
-                            pass
-                        setattr(self, "_mcp_front_error_reported", True)
-                else:
-                    providers_line = "[dim]Providers:[/dim] [dim]unknown (MCP Front)[/dim]"
-                    providers_details = ""
-        except Exception:
-            providers_line = "[dim]Providers:[/dim] [dim]unknown (MCP Front)[/dim]"
-            providers_details = ""
+
+        # Decision count (cached from async provider fetch)
         decision_line = (
             f"[dim]Decisions:[/dim] [#88C0D0]{self.decision_count}[/#88C0D0] [dim](this session)[/dim]"
             if self.decision_count > 0
             else "[dim]Decisions:[/dim] [dim]No decisions yet[/dim]"
         )
+        # Combine MCP status with cached provider info
+        providers_line = getattr(self, "_cached_providers_line", "[dim]Providers:[/dim] [dim]loading...[/dim]")
         self.query_one("#panel-session", Static).update(
-            f"{decision_line}"
+            f"{decision_line}\n{mcp_line}\n{providers_line}"
         )
 
     def _refresh_decisions(self) -> None:
@@ -1770,6 +1736,7 @@ class MembriaApp(App):
         self.skip_splash = False
         self._text_wizard = None
         self._focus_enabled = True
+        self._cached_providers_line = "[dim]Providers:[/dim] [dim]loading...[/dim]"
 
     def get_css_variables(self) -> dict[str, str]:
         variables = super().get_css_variables()
@@ -1980,8 +1947,51 @@ class MembriaApp(App):
             panel._refresh_roles()
             panel._refresh_session_local()
             self._refresh_top_info(panel)
+            # Fetch provider status asynchronously in background
+            self._refresh_providers_async(panel)
         except Exception:
             pass
+
+    def _refresh_providers_async(self, panel: SidePanel) -> None:
+        """Fetch MCP Front providers asynchronously in background thread."""
+        def _fetch_providers():
+            try:
+                mcp_front, mcp_front_err = panel._get_mcp_front_providers()
+                providers_line = ""
+                if mcp_front:
+                    rendered = []
+                    down = []
+                    for p in mcp_front:
+                        name = p.get("display_name") or p.get("name") or "unknown"
+                        ok = p.get("ping_ok")
+                        dot = "[#A3BE8C]●[/#A3BE8C]" if ok else "[#BF616A]●[/#BF616A]"
+                        msg = p.get("ping_message") or ""
+                        extra = f" [dim]({msg})[/dim]" if msg else ""
+                        rendered.append(f"{dot} {name}{extra}")
+                        if not ok:
+                            down.append(name)
+                    down_suffix = f" [dim](down: {', '.join(down)})[/dim]" if down else ""
+                    providers_line = f"[dim]Providers:[/dim] [#88C0D0]{len(mcp_front)}[/#88C0D0]{down_suffix}"
+                else:
+                    if mcp_front_err:
+                        short_err = mcp_front_err.replace("\n", " ")[:40]
+                        providers_line = f"[dim]Providers:[/dim] [dim]unknown[/dim] [dim]{short_err}[/dim]"
+                    else:
+                        providers_line = "[dim]Providers:[/dim] [dim]unknown[/dim]"
+
+                # Cache the result and update UI
+                setattr(self, "_cached_providers_line", providers_line)
+                def _update_ui():
+                    try:
+                        panel._refresh_session()
+                    except Exception:
+                        pass
+                self.call_from_thread(_update_ui)
+            except Exception:
+                pass
+
+        import threading
+        threading.Thread(target=_fetch_providers, daemon=True).start()
 
     def _refresh_top_info(self, panel: SidePanel) -> None:
         """Update top info bar — local data only, no network I/O."""
