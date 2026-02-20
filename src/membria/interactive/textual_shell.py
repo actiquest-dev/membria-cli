@@ -302,16 +302,15 @@ class SidePanel(Static):
         except Exception:
             mcp_line = "[dim]MCP:[/dim]       [#BF616A]✗[/#BF616A]"
 
-        # Decision count (cached from async provider fetch)
+        # Decision count
         decision_line = (
             f"[dim]Decisions:[/dim] [#88C0D0]{self.decision_count}[/#88C0D0] [dim](this session)[/dim]"
             if self.decision_count > 0
             else "[dim]Decisions:[/dim] [dim]No decisions yet[/dim]"
         )
-        # Combine MCP status with cached provider info
-        providers_line = getattr(self, "_cached_providers_line", "[dim]Providers:[/dim] [dim]loading...[/dim]")
+        # Show MCP status only (providers are now in top-info bar)
         self.query_one("#panel-session", Static).update(
-            f"{decision_line}\n{mcp_line}\n{providers_line}"
+            f"{decision_line}\n{mcp_line}"
         )
 
     def _refresh_decisions(self) -> None:
@@ -1743,7 +1742,14 @@ class MembriaApp(App):
         self.skip_splash = False
         self._text_wizard = None
         self._focus_enabled = True
-        self._cached_providers_line = "[dim]Providers:[/dim] [dim]loading...[/dim]"
+        self._cached_providers_text = "[dim]loading...[/dim]"
+        self._providers_fetch_inflight = False
+        # Graph metrics for top-info bar
+        self._graph_nodes = 0
+        self._graph_memory_mb = 0
+        self._graph_ok = True
+        self._graph_stats_inflight = False
+        self._graph_stats_last_fetch = 0.0  # force fetch on first call
 
     def get_css_variables(self) -> dict[str, str]:
         variables = super().get_css_variables()
@@ -1955,107 +1961,207 @@ class MembriaApp(App):
             panel._refresh_roles()
             panel._refresh_session_local()
             self._refresh_top_info(panel)
-            # Fetch provider status asynchronously in background
+            # Fetch provider status and graph stats asynchronously in background
             self._refresh_providers_async(panel)
+            self._refresh_graph_stats_async(panel)
         except Exception:
             pass
 
-    def _refresh_providers_async(self, panel: SidePanel) -> None:
-        """Fetch MCP Front providers asynchronously in background thread."""
-        def _fetch_providers():
+    def _refresh_graph_stats_async(self, panel: SidePanel) -> None:
+        """Fetch graph stats in background; re-queries FalkorDB at most once per minute."""
+        now = time.time()
+        if getattr(self, "_graph_stats_inflight", False):
+            return
+        if now - getattr(self, "_graph_stats_last_fetch", 0.0) < 60:
+            return
+        self._graph_stats_inflight = True
+
+        def _fetch():
+            nodes = 0
+            mem_mb = 0
+            graph_ok = True
             try:
-                mcp_front, mcp_front_err = panel._get_mcp_front_providers()
-                providers_line = ""
-
-                if mcp_front:
-                    # Successfully got providers - display with status indicators
-                    rendered = []
-                    down = []
-                    for p in mcp_front:
-                        name = p.get("display_name") or p.get("name") or "unknown"
-                        ok = p.get("ping_ok")
-                        dot = "[#A3BE8C]●[/#A3BE8C]" if ok else "[#BF616A]●[/#BF616A]"
-                        msg = p.get("ping_message") or ""
-                        extra = f" [dim]({msg})[/dim]" if msg else ""
-                        rendered.append(f"{dot} {name}{extra}")
-                        if not ok:
-                            down.append(name)
-                    down_suffix = f" [dim](down: {', '.join(down)})[/dim]" if down else ""
-                    providers_line = f"[dim]Providers:[/dim] [#88C0D0]{len(mcp_front)}[/#88C0D0]{down_suffix}"
-                else:
-                    # No providers - determine why and show appropriate message
-                    if mcp_front_err:
-                        # Show error with context
-                        if "timed out" in mcp_front_err.lower() or "timeout" in mcp_front_err.lower():
-                            providers_line = "[dim]Providers:[/dim] [#BF616A]timeout[/#BF616A] [dim](retrying...)[/dim]"
-                        elif "not reachable" in mcp_front_err.lower():
-                            providers_line = "[dim]Providers:[/dim] [#BF616A]unreachable[/#BF616A]"
-                        else:
-                            short_err = mcp_front_err.replace("\n", " ")[:35]
-                            providers_line = f"[dim]Providers:[/dim] [#BF616A]error[/#BF616A] [dim]{short_err}[/dim]"
-                    else:
-                        # No error message but also no providers
-                        providers_line = "[dim]Providers:[/dim] [dim]connecting...[/dim]"
-
-                # Cache the result and update UI
-                setattr(self, "_cached_providers_line", providers_line)
-                def _update_ui():
-                    try:
-                        # Update both the session panel and top-info bar
-                        self._refresh_top_info(panel)
-                        panel._refresh_session()
-                    except Exception:
-                        pass
-                self.call_from_thread(_update_ui)
-            except Exception as e:
-                # Fallback error display
-                providers_line = "[dim]Providers:[/dim] [dim]error[/dim]"
-                setattr(self, "_cached_providers_line", providers_line)
+                # Memory via psutil, fallback to resource module
                 try:
-                    def _update_ui():
-                        self._refresh_top_info(panel)
-                    self.call_from_thread(_update_ui)
+                    import psutil, os as _os
+                    mem_mb = int(psutil.Process(_os.getpid()).memory_info().rss / 1024 / 1024)
+                except ImportError:
+                    try:
+                        import resource
+                        mem_mb = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)
+                    except Exception:
+                        mem_mb = 0
+
+                # Graph node count: get config via ConfigManager.get_falkordb_config()
+                from membria.graph import GraphClient
+                falkordb_cfg = None
+                if self.config_manager and hasattr(self.config_manager, "get_falkordb_config"):
+                    falkordb_cfg = self.config_manager.get_falkordb_config()
+                elif self.config_manager:
+                    falkordb_cfg = getattr(getattr(self.config_manager, "config", None), "falkordb", None)
+
+                if falkordb_cfg:
+                    gc = GraphClient(falkordb_cfg)
+                    if gc.connect():
+                        try:
+                            # graph_statistics() uses chained MATCH which returns empty
+                            # if any label is missing — use a direct count instead
+                            result = gc.graph.query("MATCH (n) RETURN count(n) as total")
+                            if result.result_set:
+                                nodes = int(result.result_set[0][0])
+                        except Exception:
+                            graph_ok = False
+                        finally:
+                            try:
+                                gc.disconnect()
+                            except Exception:
+                                pass
+                    else:
+                        graph_ok = False
+                else:
+                    graph_ok = False
+            except Exception:
+                graph_ok = False
+            finally:
+                self._graph_stats_inflight = False
+                self._graph_stats_last_fetch = time.time()
+
+            self._graph_nodes = nodes
+            self._graph_memory_mb = mem_mb
+            self._graph_ok = graph_ok
+
+            def _update_ui():
+                try:
+                    self._refresh_top_info(panel)
                 except Exception:
                     pass
+            try:
+                self.call_from_thread(_update_ui)
+            except Exception:
+                pass
+
+        import threading
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _refresh_providers_async(self, panel: SidePanel) -> None:
+        """Fetch MCP Front providers directly in background thread (no nested threads)."""
+        # Skip if a fetch is already in flight
+        if getattr(self, "_providers_fetch_inflight", False):
+            return
+        self._providers_fetch_inflight = True
+
+        def _fetch_providers():
+            providers_text = "[dim]loading...[/dim]"
+            try:
+                import urllib.request
+                import json as _json
+                base = panel._mcp_front_base()
+                url = f"{base}/api/providers"
+                try:
+                    with urllib.request.urlopen(url, timeout=5.0) as resp:
+                        payload = _json.loads(resp.read().decode("utf-8", "ignore"))
+                    providers = payload.get("providers") or [] if isinstance(payload, dict) else []
+                    if providers:
+                        lines = []
+                        for p in providers:
+                            name = p.get("display_name") or p.get("name") or "unknown"
+                            ok = p.get("ping_ok")
+                            dot = "[#A3BE8C]●[/#A3BE8C]" if ok else "[#BF616A]●[/#BF616A]"
+                            lines.append(f"{dot} {name}")
+                        providers_text = "\n".join(lines)
+                    else:
+                        providers_text = "[dim]no providers[/dim]"
+                except Exception as e:
+                    err = str(e)
+                    if "timed out" in err.lower() or "timeout" in err.lower():
+                        providers_text = "[#BF616A]timeout[/#BF616A] [dim](retrying)[/dim]"
+                    elif "connection refused" in err.lower() or "not reachable" in err.lower():
+                        providers_text = "[#BF616A]unreachable[/#BF616A]"
+                    else:
+                        providers_text = f"[#BF616A]error[/#BF616A] [dim]{err[:30]}[/dim]"
+            except Exception:
+                providers_text = "[#BF616A]error[/#BF616A]"
+            finally:
+                self._providers_fetch_inflight = False
+
+            setattr(self, "_cached_providers_text", providers_text)
+
+            def _update_ui():
+                try:
+                    self._refresh_top_info(panel)
+                    panel._refresh_session()
+                except Exception:
+                    pass
+            try:
+                self.call_from_thread(_update_ui)
+            except Exception:
+                pass
 
         import threading
         threading.Thread(target=_fetch_providers, daemon=True).start()
 
     def _refresh_top_info(self, panel: SidePanel) -> None:
-        """Update top info bar with project and provider status (two columns)."""
+        """Update top info bar: project/team | graph metrics | providers (3 columns)."""
         try:
             cfg = getattr(self.config_manager, "config", None)
             project_id = getattr(cfg, "project_id", "project") if cfg else "project"
             team_id = getattr(cfg, "team_id", "team") if cfg else "team"
 
-            # Column 1: Project & Team
-            col1 = (
-                f"[#5AA5FF]█[/#5AA5FF] [bold #88C0D0]{project_id}[/bold #88C0D0]\n"
+            # Column 2: Graph metrics
+            graph_nodes = getattr(self, "_graph_nodes", 0)
+            graph_memory = getattr(self, "_graph_memory_mb", 0)
+            graph_ok = getattr(self, "_graph_ok", True)
+            graph_icon = "[#A3BE8C]✓[/#A3BE8C]" if graph_ok else "[#BF616A]✗[/#BF616A]"
+            nodes_str = (
+                f"{graph_nodes // 1000}.{(graph_nodes % 1000) // 100}K"
+                if graph_nodes >= 1000 else str(graph_nodes)
+            )
+            mem_str = f"{graph_memory} MB" if graph_memory else "–"
+
+            # Column 3: Providers
+            providers_text = getattr(self, "_cached_providers_text", "[dim]–[/dim]")
+
+            # Build display as a single Rich text block:
+            # Row 0: project  │  Graph: N nodes  │  ● Provider1
+            # Row 1: team     │  mem MB  status   │  ● Provider2
+            # ...
+            prov_lines = providers_text.split("\n")
+
+            # Dynamically compute column widths from actual content (plain-text lengths only).
+            # col1 content: "█ {project_id}" and "  team: {team_id}"
+            c1_r0 = 2 + len(project_id)        # "█ " + project_id
+            c1_r1 = 8 + len(team_id)            # "  team: " + team_id
+            C1 = max(c1_r0, c1_r1) + 2         # +2 trailing spaces before │
+
+            # col2 content: "  graph {nodes_str} nodes" and "  {mem_str}  ✓"
+            c2_r0 = 2 + 6 + len(nodes_str) + 6  # "  graph " + nodes_str + " nodes"
+            c2_r1 = 2 + len(mem_str) + 3        # "  " + mem_str + "  ✓" (icon = 1 char)
+            C2 = max(c2_r0, c2_r1) + 2         # +2 trailing spaces before │
+
+            row0 = (
+                f"[#5AA5FF]█[/#5AA5FF] [bold #88C0D0]{project_id}[/bold #88C0D0]"
+                f"{' ' * (C1 - c1_r0)}"
+                f"[dim]│[/dim]"
+                f"  [dim]graph[/dim] [#88C0D0]{nodes_str}[/#88C0D0] nodes"
+                f"{' ' * (C2 - c2_r0)}"
+                f"[dim]│[/dim]  {prov_lines[0] if prov_lines else ''}"
+            )
+            row1 = (
                 f"  [dim]team:[/dim] {team_id}"
+                f"{' ' * (C1 - c1_r1)}"
+                f"[dim]│[/dim]"
+                f"  [#EBCB8B]{mem_str}[/#EBCB8B]  {graph_icon}"
+                f"{' ' * (C2 - c2_r1)}"
+                f"[dim]│[/dim]  {prov_lines[1] if len(prov_lines) > 1 else ''}"
             )
 
-            # Column 2: Provider status (cached from async fetch)
-            providers_line = getattr(self, "_cached_providers_line", "[dim]Providers:[/dim] [dim]loading...[/dim]")
-            col2 = providers_line
+            extra_rows = []
+            for pl in prov_lines[2:]:
+                extra_rows.append(
+                    f"{' ' * C1}[dim]│[/dim]{' ' * C2}[dim]│[/dim]  {pl}"
+                )
 
-            # Build two-column layout
-            lines = col1.split("\n")
-            col2_lines = col2.split("\n")
-
-            # Pad columns to same height
-            max_lines = max(len(lines), len(col2_lines))
-            while len(lines) < max_lines:
-                lines.append("")
-            while len(col2_lines) < max_lines:
-                col2_lines.append("")
-
-            # Combine with spacing
-            text_lines = []
-            for i in range(max_lines):
-                row = f"{lines[i]:<25}  {col2_lines[i]}"
-                text_lines.append(row)
-
-            text = "\n".join(text_lines)
+            text = "\n".join([row0, row1] + extra_rows)
             self.query_one("#top-info", Static).update(text)
         except Exception:
             pass
