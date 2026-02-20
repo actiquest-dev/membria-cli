@@ -693,6 +693,48 @@ class FirstDecisionScreen(OnboardingScreen):
             super().on_button_pressed(event)
 
 
+class AutoSetupScreen(OnboardingScreen):
+    """Choose Auto or Custom post-onboarding setup."""
+
+    def on_mount(self) -> None:
+        title = self.query_one("#title", Label)
+        progress = self.query_one("#progress", Label)
+        title.update("[bold cyan]Post-Setup Mode[/bold cyan]")
+        progress.update(f"Step {self.step}/{self.total_steps}")
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label("[bold cyan]Post-Setup Mode[/bold cyan]", id="title", classes="title")
+            yield Label(f"Step {self.step}/{self.total_steps}", id="progress", classes="progress")
+            with Vertical(classes="content"):
+                yield Label("Choose setup style:")
+                yield Label("")
+                with RadioSet(id="auto-setup-mode"):
+                    yield RadioButton("Auto (recommended) — enable Research mode + create default squad", value="auto", id="opt-auto", selected=True)
+                    yield RadioButton("Custom — skip auto config", value="custom", id="opt-custom")
+            with Horizontal(classes="actions"):
+                yield Button("Back", id="btn-back")
+                yield Button("Next", id="btn-next", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-next":
+            try:
+                radio = self.query_one("#auto-setup-mode", RadioSet)
+                choice = "auto"
+                for b in radio.query(RadioButton):
+                    if b.value:
+                        choice = b.id.replace("opt-", "")
+                        break
+                if self.flow:
+                    self.flow.auto_setup_choice = choice
+            except Exception:
+                pass
+            if self.flow:
+                self.flow.next_screen()
+            return
+        super().on_button_pressed(event)
+
+
 class SummaryScreen(OnboardingScreen):
     """Setup summary and completion."""
     
@@ -722,6 +764,10 @@ class SummaryScreen(OnboardingScreen):
                 yield Label("  1. Type /help for all commands")
                 yield Label("  2. Use /plan to start delegating")
                 yield Label("  3. Check /settings to adjust config")
+                yield Label("")
+                yield Label("[#E8E8E8]Auto setup log:[/#E8E8E8]")
+                log_text = "\n".join(getattr(self.flow, "auto_setup_log", []) or ["(no log)"])
+                yield Label(log_text, id="auto-setup-log")
             
             with Horizontal(classes="actions"):
                 yield Button("Back", id="btn-back")
@@ -748,6 +794,8 @@ class OnboardingFlow:
         self.config_manager = config_manager
         self.current_step = 0
         self.completed = False
+        self.auto_setup_choice = "auto"
+        self.auto_setup_log = []
         self.screens = [
             WelcomeScreen,
             ProviderSetupScreen,
@@ -756,6 +804,7 @@ class OnboardingFlow:
             MonitoringLevelScreen,
             ThemeSelectionScreen,
             FirstDecisionScreen,
+            AutoSetupScreen,
             SummaryScreen,
         ]
     
@@ -798,10 +847,80 @@ class OnboardingFlow:
             self.config_manager.save()
         except Exception:
             pass
+
+        # Auto-setup defaults after onboarding
+        if self.auto_setup_choice == "auto":
+            try:
+                self._auto_setup_defaults()
+            except Exception as e:
+                try:
+                    self.auto_setup_log.append(f"Auto setup failed: {e}")
+                except Exception:
+                    pass
+        else:
+            try:
+                self.auto_setup_log.append("Auto setup skipped (Custom mode).")
+            except Exception:
+                pass
         
         # Pop all onboarding screens
         try:
             while len(self.app.screen_stack) > 1:
                 self.app.pop_screen()
+        except Exception:
+            pass
+
+    def _auto_setup_defaults(self) -> None:
+        """Default post-onboarding setup: research mode + default squad."""
+        from membria.graph import GraphClient
+        import uuid
+
+        cfg_mgr = self.config_manager
+        cfg = cfg_mgr.config
+
+        self.auto_setup_log.append("Auto setup: enabling research mode.")
+        # Enable research mode and defaults
+        cfg_mgr.set("agi.research_mode", True)
+        cfg_mgr.set("research.roles", ["planner", "synth", "red_team", "final"])
+        cfg_mgr.set("research.plan_model", "z-ai/glm-5")
+        cfg_mgr.set("research.synth_model", "openai/gpt-5.2")
+        cfg_mgr.set("research.red_model", "anthropic/claude-sonnet-4.6")
+        cfg_mgr.set("research.final_model", "openai/gpt-5.2")
+
+        # Create default squad for Research & synthesis
+        graph = GraphClient()
+        if not graph.connect():
+            self.auto_setup_log.append("Auto setup: graph unavailable, squad not created.")
+            return
+
+        project_id = getattr(cfg, "project_id", "default") or "default"
+        squad_id = f"sqd_{uuid.uuid4().hex[:10]}"
+        graph.create_squad(squad_id, name="Research & synthesis", strategy="research", project_id=project_id)
+        self.auto_setup_log.append(f"Auto setup: squad created ({squad_id}).")
+
+        role_specs = [
+            ("planner", "kilo-code", "z-ai/glm-5"),
+            ("synth", "openai", "gpt-5.2"),
+            ("red_team", "anthropic", "claude-sonnet-4.6"),
+            ("final", "openai", "gpt-5.2"),
+        ]
+        default_path = str(cfg_mgr.config_file)
+        for idx, (role, provider, model) in enumerate(role_specs, start=1):
+            role_id = f"role_{role}"
+            profile_id = f"profile_{role}"
+            graph.upsert_role(role_id, role)
+            graph.upsert_profile(profile_id, role, config_path=default_path, provider=provider, model=model)
+            assignment_id = f"asn_{uuid.uuid4().hex[:10]}"
+            graph.add_assignment(
+                assignment_id=assignment_id,
+                squad_id=squad_id,
+                role_id=role_id,
+                profile_id=profile_id,
+                order=idx,
+            )
+
+        # Persist default squad id
+        try:
+            cfg_mgr.set("squad.default_id", squad_id)
         except Exception:
             pass

@@ -47,7 +47,10 @@ class ProcessManager:
         """
         # Check if already running
         if self.is_running():
-            pid = self._read_pid()
+            try:
+                pid = self._read_pid()
+            except Exception:
+                pid = None
             return False, f"Daemon already running (PID: {pid})"
 
         # Check port availability
@@ -67,7 +70,7 @@ class ProcessManager:
                 ["python", "-m", "membria.daemon_main"],
                 stdout=open(self.log_file, "a"),
                 stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 preexec_fn=os.setsid if os.name != "nt" else None,
                 cwd=str(Path(__file__).parent.parent.parent),
             )
@@ -187,7 +190,15 @@ class ProcessManager:
 
         try:
             pid = self._read_pid()
-            return self._check_process_running(pid)
+            running = self._check_process_running(pid)
+            if not running:
+                # Clean stale pid/start time files
+                try:
+                    self.pid_file.unlink(missing_ok=True)
+                    self.start_time_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            return running
         except Exception:
             return False
 

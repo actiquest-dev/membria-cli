@@ -1,11 +1,17 @@
 import os
 import json
 import base64
+import asyncio
+import subprocess
+import shutil
+from pathlib import Path
 from typing import List, Dict, Any, Optional, AsyncIterator
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
 import httpx
 from .models import AgentConfig, OrchestrationConfig
+
+DEFAULT_TIMEOUT = float(os.environ.get("MEMBRIA_PROVIDER_TIMEOUT", "15"))
 
 class Message(BaseModel):
     role: str  # user, assistant, system
@@ -87,7 +93,7 @@ class AnthropicProvider(BaseProvider):
                 # Handle SSE streaming logic
                 pass
             else:
-                response = await client.post(url, headers=headers, json=data, timeout=60.0)
+                response = await client.post(url, headers=headers, json=data, timeout=DEFAULT_TIMEOUT)
                 response.raise_for_status()
                 res_data = response.json()
                 return CompletionResponse(
@@ -120,7 +126,7 @@ class OpenAIProvider(BaseProvider):
                     "stream": False,
                 }
                 async with httpx.AsyncClient() as client:
-                    response = await client.post(url, headers=headers, json=data, timeout=60.0)
+                    response = await client.post(url, headers=headers, json=data, timeout=DEFAULT_TIMEOUT)
                     response.raise_for_status()
                     res_data = response.json()
                     content = _extract_openai_response_text(res_data)
@@ -148,7 +154,7 @@ class OpenAIProvider(BaseProvider):
             if stream:
                 pass
             else:
-                response = await client.post(url, headers=headers, json=data, timeout=60.0)
+                response = await client.post(url, headers=headers, json=data, timeout=DEFAULT_TIMEOUT)
                 response.raise_for_status()
                 res_data = response.json()
                 return CompletionResponse(
@@ -158,6 +164,69 @@ class OpenAIProvider(BaseProvider):
                         "output_tokens": res_data["usage"].get("completion_tokens", 0)
                     }
                 )
+
+class ClaudeCLIProvider(BaseProvider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._claude_bin = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
+
+    def _normalize_model(self, model: str) -> str:
+        if not model:
+            return model
+        mapping = {
+            "claude-opus-4.6": "claude-opus-4-6",
+            "claude-sonnet-4.6": "claude-sonnet-4-6",
+            "claude-haiku-4.5": "claude-haiku-4-5",
+        }
+        return mapping.get(model, model)
+
+    async def complete(self, model, messages, stream=False, **kwargs):
+        if stream:
+            raise NotImplementedError("Streaming not supported for Claude CLI provider")
+        if not self._claude_bin or not os.path.exists(self._claude_bin):
+            raise RuntimeError("claude CLI not found. Install Claude Code or add it to PATH.")
+
+        system_msg = next((m.content for m in messages if m.role == "system"), None)
+        prompt = _messages_to_prompt(messages)
+        cmd = [
+            self._claude_bin,
+            "--print",
+            "--output-format",
+            "json",
+        ]
+        if model:
+            cmd += ["--model", self._normalize_model(model)]
+        if system_msg:
+            cmd += ["--append-system-prompt", system_msg]
+        cmd.append(prompt)
+
+        def _run():
+            return subprocess.run(cmd, capture_output=True, text=True)
+
+        result = await asyncio.to_thread(_run)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Claude CLI error")
+
+        raw = (result.stdout or "").strip()
+        if not raw:
+            raise RuntimeError("Claude CLI returned empty response")
+        # Claude CLI may output multiple lines; parse last JSON line
+        data = None
+        for line in reversed(raw.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                break
+            except Exception:
+                continue
+        if not isinstance(data, dict):
+            raise RuntimeError("Claude CLI returned non-JSON output")
+        if data.get("is_error"):
+            raise RuntimeError(data.get("result") or "Claude CLI authentication error")
+        content = data.get("result") if isinstance(data.get("result"), str) else data.get("result", "")
+        return CompletionResponse(content=content or "", usage={})
 
 class OllamaProvider(BaseProvider):
     async def complete(self, model, messages, stream=False, **kwargs):
@@ -172,7 +241,7 @@ class OllamaProvider(BaseProvider):
             if stream:
                 pass
             else:
-                response = await client.post(url, json=data, timeout=120.0)
+                response = await client.post(url, json=data, timeout=DEFAULT_TIMEOUT)
                 response.raise_for_status()
                 res_data = response.json()
                 return CompletionResponse(
@@ -194,8 +263,10 @@ class ProviderFactory:
     ) -> BaseProvider:
         name = name.lower()
         if name == "anthropic":
+            if auth_method == "oauth" and not api_key:
+                return ClaudeCLIProvider(api_key, endpoint, auth_token, auth_method)
             return AnthropicProvider(api_key, endpoint, auth_token, auth_method)
-        elif name in ["openai", "kilocode", "openrouter"]:
+        elif name in ["openai", "kilocode", "kilo", "kilo-code", "openrouter"]:
             # These are OpenAI-compatible
             return OpenAIProvider(api_key, endpoint, auth_token, auth_method)
         elif name == "ollama":

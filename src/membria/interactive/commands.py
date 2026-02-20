@@ -95,6 +95,18 @@ class CommandHandler:
         elif cmd == "/skills":
             return await self._handle_skills(args)
         
+        elif cmd == "/providers":
+            return self._handle_providers()
+
+        elif cmd == "/wizard":
+            return self._handle_wizard()
+
+        elif cmd in ("/ozar", "/frankenmind"):
+            return self._handle_ozar()
+
+        elif cmd == "/research":
+            return self._handle_research(args)
+
         elif cmd == "/plan":
             return await self._handle_plan(args)
         
@@ -124,65 +136,58 @@ class CommandHandler:
 
         elif cmd in ("/init", "/start"):
             return await self._handle_init()
+        
+        elif cmd == "/focus":
+            return self._handle_focus(args)
 
         else:
             return f"[red]Unknown command: {cmd}[/red]\nType [bold]/help[/bold] for available commands."
     
 
     def _show_help(self) -> str:
-        """Return help text for all Phase 1 commands."""
-        help_text = """
-[#5AA5FF][bold]╭─ Membria CLI Commands ─╮[/bold][/#5AA5FF]
+        """Return help text."""
+        return """# Membria CLI — Help
 
-[#FFB84D]Navigation & System[/#FFB84D]
-  /help              Show this help message
-  /start  /init      Run setup wizard (onboarding)
-  /status            Show system and team status
-  /context           Show detected workspace context
-  /session           Show session statistics
-  /settings          Configure providers, roles, agents
+## Start
+- `/start` or `/init` — run onboarding wizard
+- `/help` — show this help
 
-[#FFB84D]Planning & Execution[/#FFB84D]
-  /plan <task>       Generate a multi-agent plan
-  /diff [file]       Show pending changes
-  /apply [file]      Apply validated changes
-  
-[#FFB84D]Analysis & Decision History[/#FFB84D]
-  /decisions [n]     Show last N decisions (default: 5)
-  /calibration [d]   Show calibration stats for domain
-  /tok               Show token usage per model this session
-  /cost              Show current session cost
-  /audit             Show reasoning audit log
+## Chat & Research
+- `/plan <task>` — generate a multi‑agent plan
+- `/research on|off|show` — toggle/show research mode
+- `/research set plan=<m> synth=<m> red=<m> final=<m>`
+- `/research template <path>` — set report template
+- `/research name <pattern>` — set output filename pattern
 
-[#FFB84D]Configuration[/#FFB84D]
-  /agents            List agents and calibration
-  /skills            List all expert roles
-  /mode [name]       Show or switch orchestration mode
-  /theme [name]      Show themes or set theme
-  /monitor [L0-L3]   Show monitoring levels or set level
-  /settings          Main settings menu
-  /settings providers            Interactive provider manager
-  /settings toggle <name>        Enable/disable provider
-  /settings set-key <name> <key> Set API key
-  /settings test-provider <name> Test provider
+## Decisions & Audit
+- `/decisions [n]` — last N decisions
+- `/calibration [domain]` — calibration stats
+- `/audit` — reasoning audit log
+- `/tok` — token usage
+- `/cost` — session cost
 
-[#FFB84D]Control & Clipboard[/#FFB84D]
-  /exit              Exit the shell
-  /copy              Copy last message to clipboard
-  /paste             Paste from clipboard
-  /export [file]     Save all messages to file
-  /view              View all messages in less (for text selection)
-  /dashboard [host port]  Open analytics dashboard in browser (default: 127.0.0.1:8000)
+## System & Settings
+- `/status` — system status
+- `/context` — detected workspace context
+- `/session` — session statistics
+- `/settings` — settings menu
+- `/providers` — provider status
+- `/skills` — list skills
+- `/agents` — list agents
+- `/mode [name]` — show/switch orchestration mode
+- `/theme [name]` — list/set theme
+- `/monitor [L0-L3]` — monitoring level
 
-[#FFB84D]Navigation[/#FFB84D]
-  [#21C93A]↑↓[/#21C93A]        Command history
-  [#21C93A]Ctrl+Home[/#21C93A]  Jump to top
-  [#21C93A]Ctrl+End[/#21C93A]   Jump to bottom
-  [#21C93A]Click[/#21C93A]      Click commands or /export button
+## Clipboard & Export
+- `/copy` — copy last message
+- `/paste` — paste clipboard
+- `/export [file]` — save all messages
+- `/view` — open in `less` for selection
+- `/dashboard [host port]` — open analytics dashboard
 
-[#5AA5FF]╰──────────────────────────────╯[/#5AA5FF]
+## Exit
+- `/exit`
 """
-        return help_text
 
     def _show_status(self) -> str:
         """Return system status."""
@@ -196,6 +201,67 @@ class CommandHandler:
 [#E8E8E8]Monitoring Level:[/#E8E8E8] L1
 """
         return status_text
+
+    def _handle_research(self, args: List[str]) -> str:
+        cfg = self.config_manager.config
+        agi_cfg = getattr(cfg, "agi", {}) or {}
+        research_cfg = getattr(cfg, "research", {}) or {}
+        if not args or args[0] in ("show", "status"):
+            enabled = bool(agi_cfg.get("research_mode", False))
+            return (
+                "[#5AA5FF]Research mode:[/#5AA5FF] "
+                f"{'ON' if enabled else 'OFF'}\n"
+                f"[dim]plan=[/dim]{research_cfg.get('plan_model','') or '-'}  "
+                f"[dim]synth=[/dim]{research_cfg.get('synth_model','') or '-'}  "
+                f"[dim]red=[/dim]{research_cfg.get('red_model','') or '-'}  "
+                f"[dim]final=[/dim]{research_cfg.get('final_model','') or '-'}"
+            )
+        if args[0] in ("on", "enable", "true"):
+            self.config_manager.set("agi.research_mode", True)
+            return "[#21C93A]✓ Research mode ON[/#21C93A]"
+        if args[0] in ("off", "disable", "false"):
+            self.config_manager.set("agi.research_mode", False)
+            return "[#BF616A]✗ Research mode OFF[/#BF616A]"
+        if args[0] == "template":
+            if len(args) < 2:
+                return "[red]Usage: /research template /path/to/template.md[/red]"
+            self.config_manager.set("research.template_path", " ".join(args[1:]).strip())
+            return "[#21C93A]✓ Research template updated[/#21C93A]"
+        if args[0] == "name":
+            if len(args) < 2:
+                return "[red]Usage: /research name {ts}_{slug}.md[/red]"
+            self.config_manager.set("research.output_name_template", " ".join(args[1:]).strip())
+            return "[#21C93A]✓ Research filename pattern updated[/#21C93A]"
+        if args[0] == "set":
+            updates = {}
+            for part in args[1:]:
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    updates[k.strip()] = v.strip()
+            keymap = {
+                "plan": "research.plan_model",
+                "synth": "research.synth_model",
+                "red": "research.red_model",
+                "final": "research.final_model",
+            }
+            for k, path in keymap.items():
+                if k in updates:
+                    self.config_manager.set(path, updates[k])
+            return "[#21C93A]✓ Research models updated[/#21C93A]"
+        return "[red]Usage: /research [on|off|show] or /research set plan=... synth=... red=... final=...[/red]"
+
+    def _handle_focus(self, args: List[str]) -> str:
+        if not args:
+            state = "on" if getattr(self.shell, "_focus_enabled", True) else "off"
+            return f"[dim]focus: {state}[/dim]"
+        val = args[0].lower()
+        if val in ("on", "true", "enable"):
+            setattr(self.shell, "_focus_enabled", True)
+            return "[#21C93A]✓ Focus guard ON[/#21C93A]"
+        if val in ("off", "false", "disable"):
+            setattr(self.shell, "_focus_enabled", False)
+            return "[#BF616A]✗ Focus guard OFF[/#BF616A]"
+        return "[red]Usage: /focus on|off[/red]"
 
     def _handle_dashboard(self, args: List[str]) -> str:
         """Start Membria analytics dashboard in the browser."""
@@ -432,6 +498,31 @@ class CommandHandler:
 
 [#E8E8E8]Use /calibration to view expert accuracy[/#E8E8E8]
 """
+
+    def _handle_providers(self) -> str:
+        try:
+            self.shell.open_providers_screen()
+            return ""
+        except Exception:
+            return "[red]✗ Failed to open providers screen[/red]"
+
+    def _handle_wizard(self) -> str:
+        try:
+            self.shell.action_open_agi_wizard()
+            return ""
+        except Exception:
+            return "[red]✗ Failed to open chat setup[/red]"
+
+    def _handle_ozar(self) -> str:
+        try:
+            # open wizard (config) or focus input if already active
+            if getattr(self.shell, "_agi_session", None):
+                self.shell.focus_input()
+                return "[dim]Chat session is active.[/dim]"
+            self.shell.action_open_agi_wizard()
+            return ""
+        except Exception:
+            return "[red]✗ Failed to open chat session[/red]"
 
     async def _handle_calibration(self, args: List[str]) -> str:
         """Show calibration statistics for experts/domains."""
@@ -771,4 +862,3 @@ class CommandHandler:
             return ""
         except Exception as e:
             return f"[red]Failed to start onboarding: {e}[/red]"
-

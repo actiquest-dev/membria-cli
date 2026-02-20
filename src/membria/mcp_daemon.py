@@ -22,6 +22,20 @@ from membria.security import sanitize_text
 logger = logging.getLogger(__name__)
 
 
+TOOL_KINDS = {
+    "membria.read_file": "local_fs",
+    "membria.write_file": "local_fs",
+    "membria.list_dir": "local_fs",
+    "membria.search_files": "local_fs",
+    "membria.web_search": "search",
+    "membria.web_fetch_headless": "browser",
+    "membria.browser_fetch": "browser",
+    "membria.skills_find": "search",
+    "membria.skills_import": "graph",
+    "membria.skills_import_repo": "graph",
+}
+
+
 class MCPDaemonServer:
     """Real MCP server with background processing."""
 
@@ -99,7 +113,8 @@ class MCPDaemonServer:
                 try:
                     line = sys.stdin.readline()
                     if not line:
-                        break
+                        time.sleep(0.1)
+                        continue
 
                     message = json.loads(line)
                     response = self._handle_mcp_message(message)
@@ -189,6 +204,148 @@ class MCPDaemonServer:
                         "ocr": {"type": "boolean"},
                     },
                     "required": ["input"],
+                },
+            },
+            {
+                "name": "membria.read_file",
+                "description": "Read a local file (safe, allowlist).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "max_chars": {"type": "integer"},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "membria.write_file",
+                "description": "Write a local file (safe, allowlist).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "mode": {"type": "string"},
+                        "create_dirs": {"type": "boolean"},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "membria.list_dir",
+                "description": "List directory contents (safe, allowlist).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "recursive": {"type": "boolean"},
+                        "pattern": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "membria.search_files",
+                "description": "Search files for a query (safe, allowlist).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "path": {"type": "string"},
+                        "glob": {"type": "string"},
+                        "max_results": {"type": "integer"},
+                    },
+                    "required": ["query", "path"],
+                },
+            },
+            {
+                "name": "membria.web_search",
+                "description": "Search the web (DuckDuckGo HTML).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "max_results": {"type": "integer"},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "membria.browser_fetch",
+                "description": "Browser fetch (Playwright, non-headless by default).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "wait_ms": {"type": "integer"},
+                        "timeout_ms": {"type": "integer"},
+                        "selector": {"type": "string"},
+                        "user_agent": {"type": "string"},
+                        "return_html": {"type": "boolean"},
+                        "headless": {"type": "boolean"},
+                    },
+                    "required": ["url"],
+                },
+            },
+            {
+                "name": "membria.tool_list",
+                "description": "List tools from the graph registry.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"kind": {"type": "string"}, "enabled": {"type": "boolean"}, "limit": {"type": "integer"}},
+                },
+            },
+            {
+                "name": "membria.tool_enable",
+                "description": "Enable a tool in the registry.",
+                "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            },
+            {
+                "name": "membria.tool_disable",
+                "description": "Disable a tool in the registry.",
+                "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            },
+            {
+                "name": "membria.tool_policy_set",
+                "description": "Set tool policy (allowlist/limits/sandbox).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "allowlist": {"type": "string"},
+                        "limits": {"type": "string"},
+                        "sandbox": {"type": "string"},
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "membria.skills_find",
+                "description": "Find external skills for a task (web search).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"task": {"type": "string"}, "max_results": {"type": "integer"}},
+                    "required": ["task"],
+                },
+            },
+            {
+                "name": "membria.skills_import",
+                "description": "Import external skills into DocShot and link to role.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"urls": {"type": "array", "items": {"type": "string"}}, "role_name": {"type": "string"}},
+                    "required": ["urls"],
+                },
+            },
+            {
+                "name": "membria.skills_import_repo",
+                "description": "Import all SKILL.md from a repo into DocShot and Skill nodes.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"repo_url": {"type": "string"}, "role_name": {"type": "string"}},
+                    "required": ["repo_url"],
                 },
             },
             {
@@ -295,6 +452,23 @@ class MCPDaemonServer:
                         "nk_ids": {"type": "array", "items": {"type": "string"}}
                     },
                     "required": ["name"],
+                },
+            },
+            {
+                "name": "membria.web_fetch_headless",
+                "description": "Headless browser fetch (Playwright)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "wait_ms": {"type": "integer"},
+                        "timeout_ms": {"type": "integer"},
+                        "selector": {"type": "string"},
+                        "user_agent": {"type": "string"},
+                        "return_html": {"type": "boolean"},
+                        "headless": {"type": "boolean"}
+                    },
+                    "required": ["url"],
                 },
             },
             {
@@ -564,6 +738,30 @@ class MCPDaemonServer:
         """Handle tool call from Claude Code."""
         try:
             from membria.mcp_schemas import validate_tool_params, validate_tool_result
+            import time
+            import hashlib
+            from membria.security import safe_json_dumps
+            from membria.agent_firewall import AgentFirewall
+
+            is_membria_tool = tool_name.startswith("membria")
+            if is_membria_tool:
+                try:
+                    kind = TOOL_KINDS.get(tool_name, "graph")
+                    existing = self.graph.get_tool(tool_name)
+                    if not existing:
+                        self.graph.upsert_tool(tool_name, kind=kind, description=tool_name)
+                    elif not existing.get("enabled", True):
+                        return {
+                            "type": "error",
+                            "id": request_id,
+                            "error": f"Tool disabled: {tool_name}",
+                        }
+                except Exception as e:
+                    return {
+                        "type": "error",
+                        "id": request_id,
+                        "error": f"Tool registry error: {e}",
+                    }
 
             validation_error = validate_tool_params(tool_name, params)
             if validation_error:
@@ -573,10 +771,58 @@ class MCPDaemonServer:
                     "error": f"Invalid params: {validation_error}",
                 }
 
+            start_ts = time.time()
+            args_hash = hashlib.sha1(safe_json_dumps(params).encode("utf-8")).hexdigest()
+
+            guard = AgentFirewall(self.graph).evaluate(tool_name, params, session_id=session_id)
+            if not guard.get("allowed", True):
+                try:
+                    self.graph.log_tool_call(
+                        tool_name=tool_name,
+                        session_id=session_id,
+                        status="denied",
+                        args_hash=args_hash,
+                        latency_ms=0,
+                        error=str(guard.get("reason", "denied")),
+                    )
+                except Exception:
+                    pass
+                return {
+                    "type": "error",
+                    "id": request_id,
+                    "error": f"Tool denied: {guard.get('reason')}",
+                }
+
             if tool_name == "membria.fetch_docs":
                 response = self._tool_fetch_docs(request_id, params, session_id)
             elif tool_name == "membria.md_xtract":
                 response = self._tool_md_xtract(request_id, params)
+            elif tool_name == "membria.read_file":
+                response = self._tool_read_file(request_id, params)
+            elif tool_name == "membria.write_file":
+                response = self._tool_write_file(request_id, params)
+            elif tool_name == "membria.list_dir":
+                response = self._tool_list_dir(request_id, params)
+            elif tool_name == "membria.search_files":
+                response = self._tool_search_files(request_id, params)
+            elif tool_name == "membria.web_search":
+                response = self._tool_web_search(request_id, params)
+            elif tool_name == "membria.browser_fetch":
+                response = self._tool_browser_fetch(request_id, params)
+            elif tool_name == "membria.tool_list":
+                response = self._tool_tool_list(request_id, params)
+            elif tool_name == "membria.tool_enable":
+                response = self._tool_tool_enable(request_id, params)
+            elif tool_name == "membria.tool_disable":
+                response = self._tool_tool_disable(request_id, params)
+            elif tool_name == "membria.tool_policy_set":
+                response = self._tool_tool_policy_set(request_id, params)
+            elif tool_name == "membria.skills_find":
+                response = self._tool_skills_find(request_id, params)
+            elif tool_name == "membria.skills_import":
+                response = self._tool_skills_import(request_id, params)
+            elif tool_name == "membria.skills_import_repo":
+                response = self._tool_skills_import_repo(request_id, params)
             elif tool_name == "membria.squad_create":
                 response = self._tool_squad_create(request_id, params)
             elif tool_name == "membria.assignment_add":
@@ -593,6 +839,8 @@ class MCPDaemonServer:
                 response = self._tool_role_link(request_id, params)
             elif tool_name == "membria.role_unlink":
                 response = self._tool_role_unlink(request_id, params)
+            elif tool_name == "membria.web_fetch_headless":
+                response = self._tool_web_fetch_headless(request_id, params)
             elif tool_name == "membria_record_decision":
                 if session_id and session_id not in self.session_docs:
                     logger.warning(
@@ -666,6 +914,25 @@ class MCPDaemonServer:
                     "id": request_id,
                     "error": f"Unknown tool: {tool_name}",
                 }
+
+            if is_membria_tool:
+                try:
+                    latency_ms = int((time.time() - start_ts) * 1000)
+                    status = "success" if response.get("type") == "tool_result" else "error"
+                    error_text = None
+                    if response.get("type") == "error":
+                        error_text = str(response.get("error", "error"))
+                    self.graph.log_tool_call(
+                        tool_name=tool_name,
+                        session_id=session_id,
+                        status=status,
+                        args_hash=args_hash,
+                        latency_ms=latency_ms,
+                        error=error_text,
+                    )
+                except Exception:
+                    pass
+
             if response.get("type") == "tool_result":
                 result_error = validate_tool_result(tool_name, response.get("result", {}))
                 if result_error:
@@ -786,6 +1053,191 @@ class MCPDaemonServer:
                 "id": request_id,
                 "result": {"status": "error", "error": str(e)},
             }
+
+    def _tool_read_file(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Read local file (safe, allowlist)."""
+        try:
+            from membria.fs_tools import read_file
+            allowed = self.config.config.tools.allowed_paths
+            result = read_file(
+                path=params.get("path"),
+                allowed_paths=allowed,
+                max_chars=int(params.get("max_chars") or 8000),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_write_file(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Write local file (safe, allowlist)."""
+        try:
+            from membria.fs_tools import write_file
+            allowed = self.config.config.tools.allowed_paths
+            result = write_file(
+                path=params.get("path"),
+                content=params.get("content", ""),
+                allowed_paths=allowed,
+                mode=params.get("mode") or "overwrite",
+                create_dirs=bool(params.get("create_dirs", True)),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_list_dir(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: List directory (safe, allowlist)."""
+        try:
+            from membria.fs_tools import list_dir
+            allowed = self.config.config.tools.allowed_paths
+            result = list_dir(
+                path=params.get("path"),
+                allowed_paths=allowed,
+                recursive=bool(params.get("recursive", False)),
+                pattern=params.get("pattern"),
+                limit=int(params.get("limit") or 200),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_search_files(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Search files (safe, allowlist)."""
+        try:
+            from membria.fs_tools import search_files
+            allowed = self.config.config.tools.allowed_paths
+            result = search_files(
+                query=params.get("query"),
+                path=params.get("path"),
+                allowed_paths=allowed,
+                glob=params.get("glob"),
+                max_results=int(params.get("max_results") or 50),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_web_search(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Web search (DuckDuckGo HTML)."""
+        try:
+            if not self.config.config.tools.web_search_enabled:
+                return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": "web_search disabled"}}
+            from membria.web_search import search_web
+            results = search_web(
+                query=params.get("query"),
+                max_results=int(params.get("max_results") or 5),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", "results": results}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_browser_fetch(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Browser fetch (Playwright)."""
+        try:
+            if not self.config.config.tools.web_fetch_enabled:
+                return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": "web_fetch disabled"}}
+            from membria.web_fetch import fetch_headless
+            result = fetch_headless(
+                url=params.get("url"),
+                wait_ms=int(params.get("wait_ms") or 0),
+                timeout_ms=int(params.get("timeout_ms") or 15000),
+                selector=params.get("selector"),
+                user_agent=params.get("user_agent"),
+                return_html=bool(params.get("return_html", False)),
+                headless=bool(params.get("headless", False)),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_tool_list(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: List tools from graph registry."""
+        try:
+            items = self.graph.list_tools(
+                kind=params.get("kind"),
+                enabled=params.get("enabled"),
+                limit=int(params.get("limit") or 200),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", "items": items}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_tool_enable(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Enable tool in registry."""
+        try:
+            name = params.get("name")
+            ok = self.graph.set_tool_enabled(name, True)
+            if not ok:
+                return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": "enable failed"}}
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", "name": name, "enabled": True}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_tool_disable(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Disable tool in registry."""
+        try:
+            name = params.get("name")
+            ok = self.graph.set_tool_enabled(name, False)
+            if not ok:
+                return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": "disable failed"}}
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", "name": name, "enabled": False}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_tool_policy_set(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Set tool policy."""
+        try:
+            name = params.get("name")
+            policy = {
+                "allowlist": params.get("allowlist"),
+                "limits": params.get("limits"),
+                "sandbox": params.get("sandbox"),
+            }
+            ok = self.graph.set_tool_policy(name, policy)
+            if not ok:
+                return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": "policy set failed"}}
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", "name": name, "policy": policy}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_skills_find(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Find external skills for a task (web search)."""
+        try:
+            from membria.skills_importer import find_skill_sources
+            results = find_skill_sources(
+                task=params.get("task"),
+                max_results=int(params.get("max_results") or 5),
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", "results": results}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_skills_import(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Import external skills into DocShot and link to role."""
+        try:
+            from membria.skills_importer import import_skill_sources
+            result = import_skill_sources(
+                graph=self.graph,
+                urls=params.get("urls") or [],
+                role_name=params.get("role_name") or None,
+                create_skill_nodes=True,
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
+
+    def _tool_skills_import_repo(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Import all SKILL.md from a repo."""
+        try:
+            from membria.skills_importer import import_skills_from_repo
+            result = import_skills_from_repo(
+                graph=self.graph,
+                repo_url=params.get("repo_url"),
+                role_name=params.get("role_name") or None,
+                create_skill_nodes=True,
+            )
+            return {"type": "tool_result", "id": request_id, "result": {"status": "success", **result}}
+        except Exception as e:
+            return {"type": "tool_result", "id": request_id, "result": {"status": "error", "error": str(e)}}
 
     def _tool_squad_create(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
         """Tool: Create squad."""
@@ -990,6 +1442,34 @@ class MCPDaemonServer:
             for nk in params.get("nk_ids") or []:
                 self.graph.unlink_role_nk(name, nk)
             return {"type": "tool_result", "id": request_id, "result": {"status": "success"}}
+        except Exception as e:
+            return {"type": "error", "id": request_id, "error": str(e)}
+
+    def _tool_web_fetch_headless(self, request_id: Optional[str], params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tool: Headless browser fetch (Playwright)."""
+        try:
+            from membria.web_fetch import fetch_headless
+
+            res = fetch_headless(
+                url=params.get("url"),
+                wait_ms=int(params.get("wait_ms") or 500),
+                timeout_ms=int(params.get("timeout_ms") or 15000),
+                selector=params.get("selector"),
+                user_agent=params.get("user_agent"),
+                return_html=bool(params.get("return_html") or False),
+                headless=bool(params.get("headless") if params.get("headless") is not None else True),
+            )
+            return {
+                "type": "tool_result",
+                "id": request_id,
+                "result": {
+                    "status": "success",
+                    "url": res.url,
+                    "title": res.title,
+                    "content": res.content,
+                    "html": res.html,
+                },
+            }
         except Exception as e:
             return {"type": "error", "id": request_id, "error": str(e)}
 
