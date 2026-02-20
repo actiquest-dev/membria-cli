@@ -1994,27 +1994,40 @@ class MembriaApp(App):
         threading.Thread(target=_fetch_providers, daemon=True).start()
 
     def _refresh_top_info(self, panel: SidePanel) -> None:
-        """Update top info bar — local data only, no network I/O."""
+        """Update top info bar with project and provider status (two columns)."""
         try:
             cfg = getattr(self.config_manager, "config", None)
-            project_id = getattr(cfg, "project_id", "default") if cfg else "default"
-            team_id = getattr(cfg, "team_id", "default") if cfg else "default"
-            mode = "pipeline"
-            try:
-                # Try both dict and object access patterns
-                orch_cfg = getattr(cfg, "orchestration", None) if cfg else None
-                if isinstance(orch_cfg, dict):
-                    mode = orch_cfg.get("mode", "pipeline")
-                elif orch_cfg:
-                    mode = getattr(orch_cfg, "mode", "pipeline")
-            except Exception:
-                pass
-            ws_id = getattr(self, "_active_ws_id", "") or ""
-            ws_part = f"  [dim]ws:[/dim] {ws_id}" if ws_id else ""
-            text = (
-                f"[bold]Project:[/bold] {project_id}   [bold]Team:[/bold] {team_id}{ws_part}\n"
-                f"[dim]Mode:[/dim] {mode}"
+            project_id = getattr(cfg, "project_id", "project") if cfg else "project"
+            team_id = getattr(cfg, "team_id", "team") if cfg else "team"
+
+            # Column 1: Project & Team
+            col1 = (
+                f"[#5AA5FF]█[/#5AA5FF] [bold #88C0D0]{project_id}[/bold #88C0D0]\n"
+                f"  [dim]team:[/dim] {team_id}"
             )
+
+            # Column 2: Provider status (cached from async fetch)
+            providers_line = getattr(self, "_cached_providers_line", "[dim]Providers:[/dim] [dim]loading...[/dim]")
+            col2 = providers_line
+
+            # Build two-column layout
+            lines = col1.split("\n")
+            col2_lines = col2.split("\n")
+
+            # Pad columns to same height
+            max_lines = max(len(lines), len(col2_lines))
+            while len(lines) < max_lines:
+                lines.append("")
+            while len(col2_lines) < max_lines:
+                col2_lines.append("")
+
+            # Combine with spacing
+            text_lines = []
+            for i in range(max_lines):
+                row = f"{lines[i]:<25}  {col2_lines[i]}"
+                text_lines.append(row)
+
+            text = "\n".join(text_lines)
             self.query_one("#top-info", Static).update(text)
         except Exception:
             pass
