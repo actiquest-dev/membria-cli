@@ -1832,6 +1832,7 @@ class MembriaApp(App):
                 pass
 
         # Periodic sidebar refresh — only fast local checks, no network I/O
+        self._refresh_sidebar()  # Fetch providers immediately on startup
         self.set_interval(30.0, self._refresh_sidebar)
 
         # Auto-show onboarding tips or compact help on startup
